@@ -10,8 +10,20 @@
 #define MAGICBLOOM_NOADAPT 0
 #endif
 
+#ifndef MAGICBLOOM_NODIRT
+#define MAGICBLOOM_NODIRT 0
+#endif
+
 #ifndef MAGICBLOOM_ADAPTRES
 #define MAGICBLOOM_ADAPTRES 256
+#endif
+
+#ifndef MAGICBLOOM_DIRT_WIDTH
+#define MAGICBLOOM_DIRT_WIDTH 1280
+#endif
+
+#ifndef MAGICBLOOM_DIRT_HEIGHT
+#define MAGICBLOOM_DIRT_HEIGHT 720
 #endif
 
 #define BLUR_SCALE_1 2
@@ -46,6 +58,7 @@ static const float pi = atan(1.0) * 4.0;
 static const int samples = MAGICBLOOM_SAMPLES;
 static const float sigma = 1.0;
 static const int lowest_mip = int(log(MAGICBLOOM_ADAPTRES) / log(2)) + 1;
+static const float ar_dirt = float(MAGICBLOOM_DIRT_WIDTH) / float(MAGICBLOOM_DIRT_HEIGHT);
 
 //Uniforms////////////////////////////////////////////////////////////////////////////////////
 
@@ -56,6 +69,18 @@ uniform float fBloom_Intensity <
 	ui_max = 1.0;
 	ui_step = 0.001;
 > = 1.0;
+
+#if !MAGICBLOOM_NODIRT
+
+uniform float fDirt_Intensity <
+	ui_label = "Dirt Intensity";
+	ui_type = "drag";
+	ui_min = 0.0;
+	ui_max = 1.0;
+	ui_step = 0.001;
+> = 0.0;
+
+#endif
 
 uniform float fExposure <
 	ui_label = "Exposure";
@@ -82,6 +107,18 @@ uniform float fAdapt_Sensitivity <
 	ui_max = 3.0;
 	ui_step = 0.001;
 > = 1.0;
+
+uniform bool bAdapt_MinMax <
+	ui_label = "Use Adaptation Clamping (Min/Max)";
+> = true;
+
+uniform float2 f2Adapt_MinMax <
+	ui_label = "Adaptation Min/Max";
+	ui_type = "drag";
+	ui_min = 0.001;
+	ui_max = 3.0;
+	ui_step = 0.001;
+> = float2(0.0, 1.0);
 
 uniform int iAdapt_Precision <
 	ui_label = "Adaptation Precision";
@@ -127,6 +164,9 @@ uniform bool bShowTexture <
 
 #if !MAGICBLOOM_NOADAPT
 
+texture tMagicBloom_Dirt <source="MagicBloom_Dirt.png";> { Width = MAGICBLOOM_DIRT_WIDTH; Height = MAGICBLOOM_DIRT_HEIGHT; };
+sampler sMagicBloom_Dirt { Texture = tMagicBloom_Dirt; };
+
 texture tMagicBloom_Small { Width = MAGICBLOOM_ADAPTRES; Height = MAGICBLOOM_ADAPTRES; Format = R16F; MipLevels = lowest_mip; };
 sampler sMagicBloom_Small { Texture = tMagicBloom_Small; };
 
@@ -152,6 +192,10 @@ DEF_BLOOM_TEX(8)
 DEF_BLOOM_TEX(9)
 
 //Functions///////////////////////////////////////////////////////////////////////////////////
+
+float2 scale_uv(float2 uv, float2 scale) {
+	return (uv - 0.5) * scale + 0.5;
+}
 
 float4 _tex2D(sampler sp, float2 uv) {
 	return tex2Dlod(sp, float4(uv, 0.0, 0.0));
@@ -202,6 +246,22 @@ float get_value(float3 col) {
 		return 0.0;
 }
 
+#if !MAGICBLOOM_NODIRT
+
+float3 apply_dirt(float3 bloom, float2 uv) {
+	static const float ar_inv = 1.0 / ReShade::AspectRatio;
+
+	uv = scale_uv(uv, float2(1.0, ar_dirt * ar_inv));
+
+	float3 dirt = tex2D(sMagicBloom_Dirt, uv).rgb;
+
+	dirt *= fDirt_Intensity;
+
+	return bloom / max(1.0 - dirt, 0.001);
+}
+
+#endif
+
 float3 i_reinhard(float3 col) {
 	return (col / nozero(1.0 - col));
 }
@@ -243,6 +303,7 @@ float PS_GetAdapt(
 	float last = tex2D(sMagicBloom_Last, uv).x;
 
 	adapt *= fAdapt_Sensitivity;
+	adapt = bAdapt_MinMax ? clamp(adapt, f2Adapt_MinMax.x, f2Adapt_MinMax.y) : adapt;
 
 	return lerp(last, adapt, fAdapt_Speed);
 }
@@ -279,6 +340,12 @@ float4 PS_Blend(
 				 + tex2D(sMagicBloom_Blur8, uv).rgb
 				 + tex2D(sMagicBloom_Blur9, uv).rgb;
 	bloom /= 9.0;
+
+	#if !MAGICBLOOM_NODIRT
+	float3 dirt = tex2D(sMagicBloom_Dirt, uv).rgb;
+
+	bloom = apply_dirt(bloom, uv);
+	#endif
 
 	#if !MAGICBLOOM_NOADAPT
 	float exposure = fExposure / tex2D(sMagicBloom_Adapt, uv).x;
