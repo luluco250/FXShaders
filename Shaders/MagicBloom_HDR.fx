@@ -328,7 +328,7 @@ DEF_BLOOM_SHADER(Blur8, 9)
 float4 PS_Blend(
 	float4 pos : SV_POSITION,
 	float2 uv : TEXCOORD
-) : SV_TARGET {
+) : SV_TARGET0 {
 	float3 col = tex2D(sMagicBloom_HDR, uv).rgb;
 	float3 bloom = tex2D(sMagicBloom_Blur1, uv).rgb
 	             + tex2D(sMagicBloom_Blur2, uv).rgb

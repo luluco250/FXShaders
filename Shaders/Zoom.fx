@@ -16,6 +16,14 @@ uniform float fZoom <
 	ui_step = 0.1;
 > = 10.0;
 
+uniform float2 f2Center <
+	ui_label = "Center";
+	ui_type = "drag";
+	ui_min = 0.0;
+	ui_max = 1.0;
+	ui_step = 0.001;
+> = float2(0.5, 0.5);
+
 uniform bool bFollowMouse <
 	ui_label = "Follow Mouse (may not be accurate)";
 > = false;
@@ -45,7 +53,7 @@ float4 PS_Zoom(
 	float2 uv_zoom = scale_uv(
 		uv, 
 		bZoomKey ? (1.0 / fZoom) : 1.0, 
-		bFollowMouse ? mouse_pos : 0.5
+		bFollowMouse ? mouse_pos : f2Center
 	);
 
 	float3 col = tex2D(ReShade::BackBuffer, uv_zoom).rgb;
