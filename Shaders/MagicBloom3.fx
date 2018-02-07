@@ -35,6 +35,19 @@
 
 //Macros//////////////////////////////////////////////////////////////////////////////////////////////////
 
+/*
+	You can use these by setting them up with the
+	'Preprocessor Definitions' configuration in the
+	'Settings' tab of the ReShade menu.
+
+	Simply write the macro name, followed by 
+	an '=' and the value you want, like so:
+
+	MAGIC_BLOOM_3_DEBUG=1
+	MAGIC_BLOOM_3_DISTRIBUTION=FOGGY
+	MAGIC_BLOOM_3_DIRT_TEXTURE_FILE="MyTexture.jpg"
+*/
+
 #ifndef MAGIC_BLOOM_3_DEBUG
 #define MAGIC_BLOOM_3_DEBUG 0
 #endif
@@ -67,12 +80,27 @@
 #define MAGIC_BLOOM_3_ADAPT_NO_DELAY 0
 #endif
 
+/*
+	MAGIC_BLOOM_3_DISTRIBUTION controls the weight
+	of the bloom textures when being blended.
+
+	NORMAL:
+		Simple average of all textures.
+		Results in an in-between of CLEAR and FOGGY.
+	CLEAR:
+		Prefer the first, more detailed textures.
+		Leads to more detail bloom.
+	FOGGY:
+		Prefer the last, less detailed textures.
+		Leads to more fuzzy, blurry bloom.
+*/
+
 #define NORMAL 0
 #define CLEAR 1
 #define FOGGY 2
 
 #ifndef MAGIC_BLOOM_3_DISTRIBUTION
-#define MAGIC_BLOOM_3_DISTRIBUTION NORMAL
+#define MAGIC_BLOOM_3_DISTRIBUTION CLEAR
 #endif
 
 #define pow2(x) (x * x)
@@ -83,6 +111,12 @@
 static const int max_mip = int(log(MAGIC_BLOOM_3_RESOLUTION) / log(2)) + 1;
 static const float pi = 3.1415926535897932384626433832795;
 static const int max_steps = 8;
+/*
+	Value used for adding padding around the bloom textures
+	to avoid darkness around the edges caused by blurring.
+
+	Inspired by a nice trick used in Minecraft SEUS.
+*/
 static const float2 pad = ReShade::PixelSize * 25.0;
 
 //Uniforms////////////////////////////////////////////////////////////////////////////////////////////////
@@ -468,8 +502,17 @@ float4 PS_MakeHDR(
 	return float4(color, 1.0);
 }
 
+/*
+	You might ask yourself why I'm going to read the adaptation
+	textures using uv, rather than just 0.0 (as they're 1x1 textures).
+
+	There's this little optimization GPUs can do if they don't have modified
+	coordinates, I'm not sure if static coordinates are better, but
+	so far it seems to work nice enough.
+*/
+
 #if !MAGIC_BLOOM_3_NO_ADAPT
-float4 PS_CalcAdapt(
+float PS_CalcAdapt(
 	float4 position : SV_POSITION,
 	float2 uv       : TEXCOORD
 ) : SV_TARGET {
@@ -479,19 +522,19 @@ float4 PS_CalcAdapt(
 	adapt = bAdapt_DoLimit ? clamp(adapt, f2Adapt_MinMax.x, f2Adapt_MinMax.y) : adapt;
 
 	#if !MAGIC_BLOOM_3_ADAPT_NO_DELAY
-	float last = tex2D(sMagicBloom3_LastAdapt, 0.0).x;
+	float last = tex2D(sMagicBloom3_LastAdapt, uv).x;
 	adapt = lerp(last, adapt, get_delta_time() / fAdapt_Delay);
 	#endif
 
-	return float4(adapt, 0.0, 0.0, 1.0);
+	return adapt;
 }
 
 #if !MAGIC_BLOOM_3_ADAPT_NO_DELAY
-float4 PS_SaveAdapt(
+float PS_SaveAdapt(
 	float4 position : SV_POSITION,
 	float2 uv       : TEXCOORD
 ) : SV_TARGET {
-	return tex2D(sMagicBloom3_Adapt, 0.0);
+	return tex2D(sMagicBloom3_Adapt, uv).x;
 }
 #endif
 #endif
@@ -506,9 +549,10 @@ float4 PS_Split(
 
 	[unroll]
 	for (int i = 0; i < iSteps; ++i) {
-		lod = pow(2, i + 1);
+		lod = pow(2, i + 1); // mipmaps are in power of two
 		lod_uv = scale_uv(uv, lod, get_offset(i));
 		
+		// Padding to avoid darkened edges (sort of like a vignette)
 		if (within(lod_uv, float4(-pad.x, 1.0 + pad.x, -pad.y, 1.0 + pad.y)))
 			color += tex2Dlod(sMagicBloom3_A, float4(lod_uv, 0.0, i)).rgb;
 	}
@@ -581,8 +625,8 @@ float4 PS_Blend(
 		return float4(t_reinhard(tex2D(sMagicBloom3_A, uv).rgb), 1.0);
 
 	#if !MAGIC_BLOOM_3_NO_ADAPT
-	if (iDebug == 3)
-		return float4(tex2D(sMagicBloom3_Adapt, 0.0).x, 0.0, 0.0, 1.0);
+	if (iDebug == 3) // Show adaptation texture
+		return float4(tex2D(sMagicBloom3_Adapt, uv).x, 0.0, 0.0, 1.0);
 	#endif
 	#endif
 
@@ -597,7 +641,7 @@ float4 PS_Blend(
 
 	[unroll]
 	for (int i = 0; i < iSteps; ++i) {
-		lod = pow(2, i + 1);
+		lod = pow(2, i + 1); // mipmaps are in power of two
 		lod_uv = scale_uv(uv, 1.0 / lod, get_offset(i));
 		
 		#if MAGIC_BLOOM_3_DISTRIBUTION == CLEAR
