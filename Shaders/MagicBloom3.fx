@@ -103,7 +103,11 @@
 #define MAGIC_BLOOM_3_DISTRIBUTION CLEAR
 #endif
 
+// Lazy? Yes. But it's a bit more readable to me.
 #define pow2(x) (x * x)
+// I once got a suggestion from Marty McFly that
+// tex2Dlod is/can be faster at reading offset
+// coordinates in a loop.
 #define _tex2D(sp, uv) tex2Dlod(sp, float4(uv, 0.0, 0.0))
 
 //Constants///////////////////////////////////////////////////////////////////////////////////////////////
@@ -111,12 +115,10 @@
 static const int max_mip = int(log(MAGIC_BLOOM_3_RESOLUTION) / log(2)) + 1;
 static const float pi = 3.1415926535897932384626433832795;
 static const int max_steps = 8;
-/*
-	Value used for adding padding around the bloom textures
-	to avoid darkness around the edges caused by blurring.
 
-	Inspired by a nice trick used in Minecraft SEUS.
-*/
+//Value used for adding padding around the bloom textures
+//to avoid darkness around the edges caused by blurring.
+//Inspired by a nice trick used in Minecraft SEUS.
 static const float2 pad = ReShade::PixelSize * 25.0;
 
 //Uniforms////////////////////////////////////////////////////////////////////////////////////////////////
