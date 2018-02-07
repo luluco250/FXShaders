@@ -1,11 +1,11 @@
 #include "ReShade.fxh"
 
-#ifndef VIRTUAL_RES_UPFILTER
-#define VIRTUAL_RES_UPFILTER LINEAR
+#ifndef VIRTUAL_RESOLUTION_UPFILTER
+#define VIRTUAL_RESOLUTION_UPFILTER POINT
 #endif
 
-#ifndef VIRTUAL_RES_DOWNFILTER
-#define VIRTUAL_RES_DOWNFILTER LINEAR
+#ifndef VIRTUAL_RESOLUTION_DOWNFILTER
+#define VIRTUAL_RESOLUTION_DOWNFILTER LINEAR
 #endif
 
 uniform uint iScaleMode <
@@ -36,14 +36,14 @@ sampler sBackBuffer_Down {
     Texture = ReShade::BackBufferTex;
     AddressU = BORDER;
     AddressV = BORDER;
-    MinFilter = VIRTUAL_RES_DOWNFILTER;
-    MagFilter = VIRTUAL_RES_DOWNFILTER;
+    MinFilter = VIRTUAL_RESOLUTION_DOWNFILTER;
+    MagFilter = VIRTUAL_RESOLUTION_DOWNFILTER;
 };
 
 sampler sBackBuffer_Up {
     Texture = ReShade::BackBufferTex;
-    MinFilter = VIRTUAL_RES_UPFILTER;
-    MagFilter = VIRTUAL_RES_UPFILTER;
+    MinFilter = VIRTUAL_RESOLUTION_UPFILTER;
+    MagFilter = VIRTUAL_RESOLUTION_UPFILTER;
 };
 
 float2 scaleUV(float2 uv, float2 scale) {
