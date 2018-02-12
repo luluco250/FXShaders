@@ -80,6 +80,14 @@
 #define MAGIC_BLOOM_3_ADAPT_NO_DELAY 0
 #endif
 
+#ifndef MAGIC_BLOOM_3_GHOSTING
+#define MAGIC_BLOOM_3_GHOSTING 0
+#endif
+
+#ifndef MAGIC_BLOOM_3_ANAMORPHIC
+#define MAGIC_BLOOM_3_ANAMORPHIC 0
+#endif
+
 /*
 	MAGIC_BLOOM_3_DISTRIBUTION controls the weight
 	of the bloom textures when being blended.
@@ -151,6 +159,23 @@ uniform float fBloom_Threshold <
 	ui_max     = 10.0;
 	ui_step    = 0.001;
 > = 1.0;
+#endif
+
+#if MAGIC_BLOOM_3_ANAMORPHIC
+uniform float2 f2Bloom_Scale <
+	ui_label   = "Bloom Scale";
+	ui_tooltip = "The X/Y scale to stretch bloom.\n"
+	             "Increasing the first value (X) makes bloom wider.\n"
+				 "Increasing the second value (Y) makes bloom taller.\n"
+				 "Set to (1, 1) to disable scaling. Remember to disable "
+				 "the MAGIC_BLOOM_3_ANAMORPHIC macro as well to save some "
+				 "performance.\n"
+				 "\nDefault: (1.70, 0.35)";
+	ui_type    = "drag";
+	ui_min     = 0.0;
+	ui_max     = 20.0;
+	ui_step    = 0.1;
+> = float2(1.7, 0.35);
 #endif
 
 #if !MAGIC_BLOOM_3_NO_DIRT
@@ -289,6 +314,30 @@ uniform float fMaxBrightness <
 	ui_step    = 1.0;
 > = 10.0;
 
+#if MAGIC_BLOOM_3_GHOSTING
+uniform float fGhosting <
+	ui_label   = "Ghosting Amount";
+	ui_tooltip = "How much to keep the previous frames of "
+	             "bloom, simulating an effect like when the "
+				 "human eye looks at a bright light source.\n"
+				 "\nDefault: 1.0";
+	ui_type    = "drag";
+	ui_min     = 0.0;
+	ui_max     = 3.0;
+	ui_step    = 0.001;
+> = 1.0;
+
+#if !MAGIC_BLOOM_3_NO_ADAPT
+uniform bool bAdapt_AffectGhosting <
+	ui_label   = "Adaptation Affects Ghosting";
+	ui_tooltip = "When enabled it makes it so ghosting is less "
+	             "intense in brighter scenes, while more so in "
+				 "darker ones.\n"
+				 "\nDefault: Off";
+> = false;
+#endif
+#endif
+
 uniform float fBlur_Sigma <
 	ui_label   = "Blur Sigma";
 	ui_tooltip = "How much to blur the bloom textures.\n"
@@ -334,7 +383,7 @@ uniform int iDebug <
 > = 0;
 #endif
 
-uniform float fDeltaTime <source = "frametime";>;
+uniform float fFrameTime <source = "frametime";>;
 
 //Textures////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -392,6 +441,17 @@ sampler2D sMagicBloom3_LastAdapt {
 #endif
 #endif
 
+#if MAGIC_BLOOM_3_GHOSTING
+texture2D tMagicBloom3_Last {
+	Width  = MAGIC_BLOOM_3_RESOLUTION;
+	Height = MAGIC_BLOOM_3_RESOLUTION;
+	Format = RGBA16F;
+};
+sampler2D sMagicBloom3_Last {
+	Texture = tMagicBloom3_Last;
+};
+#endif
+
 //Functions///////////////////////////////////////////////////////////////////////////////////////////////
 
 float3 i_reinhard(float3 col) {
@@ -423,7 +483,11 @@ float gaussian2D(float2 i) {
 }
 
 float3 blur1D(sampler2D sp, float2 uv, float2 scale) {
+	#if MAGIC_BLOOM_3_ANAMORPHIC
+	const float2 ps = ReShade::PixelSize * scale * f2Bloom_Scale;
+	#else
 	const float2 ps = ReShade::PixelSize * scale;
+	#endif
 
 	float3 color = 0.0;
 	float accum = 0.0;
@@ -484,8 +548,8 @@ bool within(float2 uv, float4 bounds) {
 	return uv.x >= bounds.x && uv.x <= bounds.y && uv.y >= bounds.z && uv.y <= bounds.w;
 }
 
-float get_delta_time() {
-	return fDeltaTime * 0.001;
+float delta_time() {
+	return fFrameTime * 0.001;
 }
 
 //Shaders/////////////////////////////////////////////////////////////////////////////////////////////////
@@ -525,7 +589,7 @@ float PS_CalcAdapt(
 
 	#if !MAGIC_BLOOM_3_ADAPT_NO_DELAY
 	float last = tex2D(sMagicBloom3_LastAdapt, uv).x;
-	adapt = lerp(last, adapt, get_delta_time() / fAdapt_Delay);
+	adapt = lerp(last, adapt, delta_time() / fAdapt_Delay);
 	#endif
 
 	return adapt;
@@ -596,8 +660,30 @@ float4 PS_BlurY(
 		uv,
 		float2(0.0, BUFFER_HEIGHT / MAGIC_BLOOM_3_RESOLUTION)
 	);
+
+	#if MAGIC_BLOOM_3_GHOSTING
+	float3 last = tex2D(sMagicBloom3_Last, uv).rgb;
+	float t = fGhosting * fFrameTime;
+
+	#if !MAGIC_BLOOM_3_NO_ADAPT
+	if (bAdapt_AffectGhosting)
+		t /= 1.0 + tex2D(sMagicBloom3_Adapt, uv).x * 10.0;
+	#endif
+
+	color = lerp(last, color, saturate(1.0 / t));
+	#endif
+
 	return float4(color, 1.0);
 }
+
+#if MAGIC_BLOOM_3_GHOSTING
+float4 PS_SaveLast(
+	float4 position : SV_POSITION,
+	float2 uv       : TEXCOORD
+) : SV_TARGET {
+	return float4(tex2D(sMagicBloom3_B, uv).rgb, 1.0);
+}
+#endif
 
 float4 PS_FixAspect(
 	float4 position : SV_POSITION,
@@ -734,6 +820,13 @@ technique MagicBloom3 {
 		PixelShader  = PS_BlurY;
 		RenderTarget = tMagicBloom3_B;
 	}
+	#if MAGIC_BLOOM_3_GHOSTING
+	pass SaveLast {
+		VertexShader = PostProcessVS;
+		PixelShader  = PS_SaveLast;
+		RenderTarget = tMagicBloom3_Last;
+	}
+	#endif
 	pass FixAspect {
 		VertexShader = PostProcessVS;
 		PixelShader  = PS_FixAspect;
