@@ -507,7 +507,11 @@ float3 blur1D(sampler2D sp, float2 uv, float2 scale) {
 }
 
 float3 blur2D(sampler2D sp, float2 uv, float2 scale) {
+	#if MAGIC_BLOOM_3_ANAMORPHIC
+	const float2 ps = ReShade::PixelSize * scale * f2Bloom_Scale;
+	#else
 	const float2 ps = ReShade::PixelSize * scale;
+	#endif
 
 	float3 color = 0.0;
 	float accum = 0.0;
@@ -663,7 +667,7 @@ float4 PS_BlurY(
 
 	#if MAGIC_BLOOM_3_GHOSTING
 	float3 last = tex2D(sMagicBloom3_Last, uv).rgb;
-	float t = fGhosting * fFrameTime;
+	float t = (fGhosting * 100.0) / fFrameTime;
 
 	#if !MAGIC_BLOOM_3_NO_ADAPT
 	if (bAdapt_AffectGhosting)
@@ -753,7 +757,6 @@ float4 PS_Blend(
 	#endif
 
 	#if !MAGIC_BLOOM_3_NO_DIRT
-	float bloom_lum = max(bloom.r, max(bloom.g, bloom.b));
 	float3 dirt = tex2D(sMagicBloom3_Dirt, uv).rgb;
 	bloom += dirt * bloom * fDirt_Intensity;
 	#endif
