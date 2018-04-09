@@ -35,6 +35,17 @@
 #define MBMB_DEPTH_FLAGS 0
 #endif
 
+// Smoothes out mouse movement, but uses two textures and passes.
+#ifndef MBMB_SMOOTHING
+#define MBMB_SMOOTHING 0
+#endif
+
+// Simulates HDR, which makes highlights keep
+// their brightness even after blurring.
+#ifndef MBMB_HDR
+#define MBMB_HDR 0
+#endif
+
 //Uniforms//////////////////////////////////////////////////////////////////////////////////////////
 
 uniform float fSensitivity <
@@ -120,19 +131,88 @@ uniform float fBlur_Sigma <
 > = 4.0;
 #endif
 
-uniform float2 f2MouseDelta <source = "mousedelta";>;
+#if MBMB_SMOOTHING
+uniform float fSmoothing <
+	ui_label   = "Smoothing";
+	ui_tooltip = "Default: 10.0";
+	ui_type    = "drag";
+	ui_min     = 0.01;
+	ui_max     = 100.0;
+	ui_step    = 0.01;
+> = 10.0;
+#endif
+
+#if MBMB_HDR
+uniform float fHDRBrightness <
+	ui_label   = "HDR Brightness";
+	ui_tooltip = "Default: 3.0";
+	ui_type    = "drag";
+	ui_min     = 1.0;
+	ui_max     = 10.0;
+	ui_step    = 0.01;
+> = 3.0;
+#endif
+
+//uniform float2 f2MouseDelta <source = "mousedelta";>;
+uniform float3 f3MouseRaw <source = "mouseraw";>;
+
+#if MBMB_SMOOTHING
+uniform float fFrameTime <source = "frametime";>;
+#endif
 
 //Textures//////////////////////////////////////////////////////////////////////////////////////////
 
 sampler2D sBackBuffer {
 	Texture     = ReShade::BackBufferTex;
-	SRGBTexture = true;
+	//SRGBTexture = true;
 	MinFilter   = LINEAR;
 	MagFilter   = LINEAR;
 	MipFilter   = LINEAR;
 	AddressU    = CLAMP;
 	AddressV    = CLAMP;
 };
+
+#if MBMB_SMOOTHING
+texture2D tMBMB_Mouse {
+	Format = RG16F;
+};
+sampler2D sMouse {
+	Texture   = tMBMB_Mouse;
+	MinFilter = POINT;
+	MagFilter = POINT;
+	MipFilter = POINT;
+	AddressU  = BORDER;
+	AddressV  = BORDER;
+};
+
+texture2D tMBMB_LastMouse {
+	Format = RG16F;
+};
+sampler2D sLastMouse {
+	Texture   = tMBMB_LastMouse;
+	MinFilter = POINT;
+	MagFilter = POINT;
+	MipFilter = POINT;
+	AddressU  = BORDER;
+	AddressV  = BORDER;
+};
+#endif
+
+#if MBMB_HDR
+texture2D tMBMB_HDR {
+	Width  = BUFFER_WIDTH;
+	Height = BUFFER_HEIGHT;
+	Format = RGBA16F;
+};
+sampler2D sHDR {
+	Texture   = tMBMB_HDR;
+	MinFilter = LINEAR;
+	MagFilter = LINEAR;
+	MipFilter = LINEAR;
+	AddressU  = CLAMP;
+	AddressV  = CLAMP;
+};
+#endif
 
 //Functions/////////////////////////////////////////////////////////////////////////////////////////
 
@@ -146,42 +226,68 @@ float gaussian1D(float x, float sigma) {
 // normal clamping distorts it.
 float2 clamp_magnitude(float2 v, float2 min_max) {
 	float mag = length(v);
-	//mag *= step(mag, min_max.x);
-	mag = mag < min_max.x ? 0.0 : mag;
-	return mag > min_max.y ? (v / mag) * min_max.y : v;
+	return (mag < min_max.x) ? 0.0 : (v / mag) * min(mag, min_max.y);
+}
+
+float3 reinhard(float3 c) {
+	return c / (1.0 + c);
+}
+
+float3 inv_reinhard(float3 c, float max_c) {
+	return (c / max(1.0 - c, max_c));
 }
 
 //Shader////////////////////////////////////////////////////////////////////////////////////////////
+
+#if MBMB_HDR
+float4 PS_MakeHDR(
+	float4 position : SV_POSITION,
+	float2 uv       : TEXCOORD
+) : SV_TARGET {
+	return float4(pow(tex2D(sBackBuffer, uv).rgb, fHDRBrightness), 1.0);
+}
+#endif
 
 float4 PS_MBMB(
 	float4 position : SV_POSITION,
 	float2 uv       : TEXCOORD
 ) : SV_TARGET {
-	float2 md = f2MouseDelta * fSensitivity;
+#if MBMB_SMOOTHING
+	float2 speed = tex2Dfetch(sMouse, (int4)0).xy * fSensitivity;
+#else
+	float2 speed = f3MouseRaw.xy * fSensitivity;
+#endif
+
 	float2 mms = f2MinMaxSpeed;
 	mms.y = mms.y <= 0.0 ? 10000.0 : mms.y;
-	md = clamp_magnitude(md, mms);
+	speed = clamp_magnitude(speed, mms);
 
-	#if MBMB_DEPTH_FLAGS > 0
+#if MBMB_DEPTH_FLAGS > 0
 	float depth = ReShade::GetLinearizedDepth(uv);
 	depth = lerp(1.0, depth * fDepthInfluence, saturate(fDepthInfluence));
-	#endif
+#endif
 
 	// This tells the direction and how much to blur the image.
-	float2 ps = ReShade::PixelSize * md;
+	float2 ps = ReShade::PixelSize * speed;
 
 	float d = fDistortion;
-	#if MBMB_DEPTH_FLAGS & AFFECT_DISTORTION
+#if MBMB_DEPTH_FLAGS & AFFECT_DISTORTION
 	d *= depth;
-	#endif
+#endif
 
 	// Distortion stuff, makes it look like real vector motion blur.
 	float2 distort = 1.0 - abs(uv - 0.5) * 2.0;
 	ps *= lerp(1.0, distort.yx * d, saturate(d));
 
-	#if MBMB_DEPTH_FLAGS & AFFECT_INTENSITY
+#if MBMB_DEPTH_FLAGS & AFFECT_INTENSITY
 	ps = lerp(0.0, ps, depth);
-	#endif
+#endif
+
+#if MBMB_HDR
+#define sColor sHDR
+#else
+#define sColor sBackBuffer
+#endif
 
 #if MBMB_GAUSSIAN
 	// We'll use color.a for accumulation.
@@ -191,7 +297,7 @@ float4 PS_MBMB(
 	// at a certain offset and then blend them.
 	for (int i = -MBMB_SAMPLES / 2; i <= MBMB_SAMPLES / 2; ++i) {
 		float offset = i;
-		color += float4(tex2D(sBackBuffer, uv + ps * offset).rgb, 1.0) * gaussian1D(offset, fBlur_Sigma);
+		color += float4(tex2D(sColor, uv + ps * offset).rgb, 1.0) * gaussian1D(offset, fBlur_Sigma);
 	}
 	color.rgb /= color.a;
 #else
@@ -199,19 +305,64 @@ float4 PS_MBMB(
 
 	// Much simpler blurring, similar to box blur.
 	for (int i = -MBMB_SAMPLES / 2; i <= MBMB_SAMPLES / 2; ++i)
-		color += tex2D(sBackBuffer, uv + ps * i).rgb;
+		color += tex2D(sColor, uv + ps * i).rgb;
 	color /= MBMB_SAMPLES;
 #endif
 
+#if MBMB_HDR
+	color.rgb = pow(color.rgb, 1.0 / fHDRBrightness);
+#endif
+
 	return float4(color.rgb, 1.0);
+
+#undef sColor
 }
+
+#if MBMB_SMOOTHING
+float4 PS_SaveMouse(
+	float4 position : SV_POSITION,
+	float2 uv       : TEXCOORD
+) : SV_TARGET {
+	float2 mouse = f3MouseRaw.xy;
+	float2 last  = tex2Dfetch(sLastMouse, (int4)0).xy;
+	mouse = lerp(last, mouse, saturate(fFrameTime / fSmoothing));
+	return float4(mouse, 0.0, 1.0);
+}
+
+float4 PS_SaveLast(
+	float4 position : SV_POSITION,
+	float2 uv       : TEXCOORD
+) : SV_TARGET {
+	return float4(tex2Dfetch(sMouse, (int4)0).xy, 0.0, 1.0);
+}
+#endif
 
 //Technique/////////////////////////////////////////////////////////////////////////////////////////
 
 technique MBMB {
-	pass {
+#if MBMB_HDR
+	pass MakeHDR {
+		VertexShader = PostProcessVS;
+		PixelShader  = PS_MakeHDR;
+		RenderTarget = tMBMB_HDR;
+	}
+#endif
+	pass MBMB {
 		VertexShader    = PostProcessVS;
 		PixelShader     = PS_MBMB;
-		SRGBWriteEnable = true;
+		//SRGBWriteEnable = true;
 	}
+
+	#if MBMB_SMOOTHING
+	pass SaveMouse {
+		VertexShader = PostProcessVS;
+		PixelShader  = PS_SaveMouse;
+		RenderTarget = tMBMB_Mouse;
+	}
+	pass SaveLast {
+		VertexShader = PostProcessVS;
+		PixelShader  = PS_SaveLast;
+		RenderTarget = tMBMB_LastMouse;
+	}
+	#endif
 }
