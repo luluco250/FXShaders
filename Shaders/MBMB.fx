@@ -153,12 +153,11 @@ uniform float fHDRBrightness <
 > = 3.0;
 #endif
 
-//uniform float2 f2MouseDelta <source = "mousedelta";>;
-uniform float3 f3MouseRaw <source = "mouseraw";>;
-
 #if MBMB_SMOOTHING
 uniform float fFrameTime <source = "frametime";>;
 #endif
+
+uniform float3 f3MouseDelta <source = "mousedelta";>;
 
 //Textures//////////////////////////////////////////////////////////////////////////////////////////
 
@@ -225,8 +224,12 @@ float gaussian1D(float x, float sigma) {
 // More specifically it keeps the overall 'form' of the vector,
 // normal clamping distorts it.
 float2 clamp_magnitude(float2 v, float2 min_max) {
-	float mag = length(v);
-	return (mag < min_max.x) ? 0.0 : (v / mag) * min(mag, min_max.y);
+	if (v.x == 0.0 && v.y == 0.0) {
+		return 0.0;
+	} else {
+		float mag = length(v);
+		return (mag < min_max.x) ? 0.0 : (v / mag) * min(mag, min_max.y);
+	}
 }
 
 float3 reinhard(float3 c) {
@@ -255,7 +258,7 @@ float4 PS_MBMB(
 #if MBMB_SMOOTHING
 	float2 speed = tex2Dfetch(sMouse, (int4)0).xy * fSensitivity;
 #else
-	float2 speed = f3MouseRaw.xy * fSensitivity;
+	float2 speed = f3MouseDelta.xy * fSensitivity;
 #endif
 
 	float2 mms = f2MinMaxSpeed;
@@ -323,7 +326,7 @@ float4 PS_SaveMouse(
 	float4 position : SV_POSITION,
 	float2 uv       : TEXCOORD
 ) : SV_TARGET {
-	float2 mouse = f3MouseRaw.xy;
+	float2 mouse = f3MouseDelta.xy;
 	float2 last  = tex2Dfetch(sLastMouse, (int4)0).xy;
 	mouse = lerp(last, mouse, saturate(fFrameTime / fSmoothing));
 	return float4(mouse, 0.0, 1.0);

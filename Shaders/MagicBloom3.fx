@@ -84,8 +84,13 @@
 #define MAGIC_BLOOM_3_GHOSTING 0
 #endif
 
-#ifndef MAGIC_BLOOM_3_ANAMORPHIC
-#define MAGIC_BLOOM_3_ANAMORPHIC 0
+#ifndef MAGIC_BLOOM_3_USE_CUSTOM_SCALE
+#define MAGIC_BLOOM_3_USE_CUSTOM_SCALE 0
+#endif
+
+// Prevents blur from happening in unused areas of the A/B textures.
+#ifndef MAGIC_BLOOOM_3_USE_BLUR_MASK
+#define MAGIC_BLOOOM_3_USE_BLUR_MASK 1
 #endif
 
 /*
@@ -111,6 +116,15 @@
 #define MAGIC_BLOOM_3_DISTRIBUTION CLEAR
 #endif
 
+// Makes fBloom_Intensity scale with fMaxBrightness
+#ifndef MAGIC_BLOOM_3_REDUCE_INTENSITY
+#define MAGIC_BLOOM_3_REDUCE_INTENSITY 1
+#endif
+
+#ifndef MAGIC_BLOOM_3_TINTING
+#define MAGIC_BLOOM_3_TINTING 0
+#endif
+
 // Lazy? Yes. But it's a bit more readable to me.
 #define pow2(x) (x * x)
 // I once got a suggestion from Marty McFly that
@@ -124,9 +138,9 @@ static const int max_mip = int(log(MAGIC_BLOOM_3_RESOLUTION) / log(2)) + 1;
 static const float pi = 3.1415926535897932384626433832795;
 static const int max_steps = 8;
 
-//Value used for adding padding around the bloom textures
-//to avoid darkness around the edges caused by blurring.
-//Inspired by a nice trick used in Minecraft SEUS.
+// Value used for adding padding around the bloom textures
+// to avoid darkness around the edges caused by blurring.
+// Inspired by a nice trick used in Minecraft SEUS.
 static const float2 pad = ReShade::PixelSize * 25.0;
 
 //Uniforms////////////////////////////////////////////////////////////////////////////////////////////////
@@ -139,7 +153,7 @@ uniform float fBloom_Intensity <
 	             "\nDefault: 1.0";
 	ui_type    = "drag";
 	ui_min     = 0.0;
-	ui_max     = 1.0;
+	ui_max     = 10.0;
 	ui_step    = 0.001;
 > = 1.0;
 
@@ -161,21 +175,29 @@ uniform float fBloom_Threshold <
 > = 1.0;
 #endif
 
-#if MAGIC_BLOOM_3_ANAMORPHIC
+#if MAGIC_BLOOM_3_TINTING
+uniform float3 f3Bloom_Tint <
+	ui_label   = "Bloom Tint";
+	ui_tooltip = "Color used to tint bloom (colorize).\n"
+	             "\nDefault: (1.0, 1.0, 1.0)";
+> = float3(1.0, 1.0, 1.0);
+#endif
+
+#if MAGIC_BLOOM_3_USE_CUSTOM_SCALE
 uniform float2 f2Bloom_Scale <
 	ui_label   = "Bloom Scale";
 	ui_tooltip = "The X/Y scale to stretch bloom.\n"
 	             "Increasing the first value (X) makes bloom wider.\n"
 				 "Increasing the second value (Y) makes bloom taller.\n"
 				 "Set to (1, 1) to disable scaling. Remember to disable "
-				 "the MAGIC_BLOOM_3_ANAMORPHIC macro as well to save some "
+				 "the MAGIC_BLOOM_3_USE_CUSTOM_SCALE macro as well to save some "
 				 "performance.\n"
-				 "\nDefault: (1.70, 0.35)";
+				 "\nDefault: (1.0, 1.0)";
 	ui_type    = "drag";
 	ui_min     = 0.0;
 	ui_max     = 20.0;
 	ui_step    = 0.1;
-> = float2(1.7, 0.35);
+> = float2(1.0, 1.0);
 #endif
 
 #if !MAGIC_BLOOM_3_NO_DIRT
@@ -399,7 +421,7 @@ texture2D tMagicBloom3_Dirt <
 	Width  = BUFFER_WIDTH;
 	Height = BUFFER_HEIGHT;
 };
-sampler2D sMagicBloom3_Dirt {
+sampler2D sDirt {
 	Texture = tMagicBloom3_Dirt;
 };
 #endif
@@ -410,7 +432,7 @@ texture2D tMagicBloom3_A {
 	Format = RGBA16F;
 	MipLevels = max_mip;
 };
-sampler2D sMagicBloom3_A {
+sampler2D sA {
 	Texture = tMagicBloom3_A;
 };
 
@@ -419,7 +441,7 @@ texture2D tMagicBloom3_B {
 	Height = MAGIC_BLOOM_3_RESOLUTION;
 	Format = RGBA16F;
 };
-sampler2D sMagicBloom3_B {
+sampler2D sB {
 	Texture = tMagicBloom3_B;
 };
 
@@ -427,7 +449,7 @@ sampler2D sMagicBloom3_B {
 texture2D tMagicBloom3_Adapt {
 	Format = R16F;
 };
-sampler2D sMagicBloom3_Adapt {
+sampler2D sAdapt {
 	Texture = tMagicBloom3_Adapt;
 };
 
@@ -435,7 +457,7 @@ sampler2D sMagicBloom3_Adapt {
 texture2D tMagicBloom3_LastAdapt {
 	Format = R16F;
 };
-sampler2D sMagicBloom3_LastAdapt {
+sampler2D sLastAdapt {
 	Texture = tMagicBloom3_LastAdapt;
 };
 #endif
@@ -447,12 +469,22 @@ texture2D tMagicBloom3_Last {
 	Height = MAGIC_BLOOM_3_RESOLUTION;
 	Format = RGBA16F;
 };
-sampler2D sMagicBloom3_Last {
+sampler2D sLast {
 	Texture = tMagicBloom3_Last;
 };
 #endif
 
 //Functions///////////////////////////////////////////////////////////////////////////////////////////////
+
+float fmod(float a, float b) {
+	float c = frac(abs(a / b)) * abs(b);
+	return (a < 0) ? -c : c;
+}
+
+float2 fmod(float2 a, float2 b) {
+	float2 c = frac(abs(a / b)) * abs(b);
+	return (a < 0) ? -c : c;
+}
 
 float3 i_reinhard(float3 col) {
 	return (col / max(1.0 - col, 1.0 / fMaxBrightness));
@@ -474,19 +506,22 @@ float2 scale_uv(float2 uv, float2 scale) {
 	return scale_uv(uv, scale, 0.5);
 }
 
-float gaussian1D(float i) {
+float gaussian(float i) {
 	return (1.0 / sqrt(2.0 * pi * pow2(fBlur_Sigma))) * exp(-(pow2(i) / (2.0 * pow2(fBlur_Sigma))));
 }
 
-float gaussian2D(float2 i) {
-	return (1.0 / (2.0 * pi * pow2(fBlur_Sigma))) * exp(-((pow2(i.x) + pow2(i.y)) / (2.0 * pow2(fBlur_Sigma))));
-}
-
-float3 blur1D(sampler2D sp, float2 uv, float2 scale) {
-	#if MAGIC_BLOOM_3_ANAMORPHIC
+float4 blur(sampler2D sp, float2 uv, float2 scale) {
+	#if MAGIC_BLOOM_3_USE_CUSTOM_SCALE
 	const float2 ps = ReShade::PixelSize * scale * f2Bloom_Scale;
 	#else
 	const float2 ps = ReShade::PixelSize * scale;
+	#endif
+
+	#if MAGIC_BLOOOM_3_USE_BLUR_MASK
+	float mask = tex2D(sp, uv).a;
+
+	if (mask == 0.0)
+		return 0.0;
 	#endif
 
 	float3 color = 0.0;
@@ -496,54 +531,26 @@ float3 blur1D(sampler2D sp, float2 uv, float2 scale) {
 	[unroll]
 	for (int i = -MAGIC_BLOOM_3_BLUR_SAMPLES / 2; i <= MAGIC_BLOOM_3_BLUR_SAMPLES / 2; ++i) {
 		offset = i;
-		weight = gaussian1D(offset);
+		weight = gaussian(offset);
 
 		color += _tex2D(sp, uv + ps * offset).rgb * weight;
 		accum += weight;
 	}
 
 	color /= accum;
-	return color;
-}
-
-float3 blur2D(sampler2D sp, float2 uv, float2 scale) {
-	#if MAGIC_BLOOM_3_ANAMORPHIC
-	const float2 ps = ReShade::PixelSize * scale * f2Bloom_Scale;
-	#else
-	const float2 ps = ReShade::PixelSize * scale;
-	#endif
-
-	float3 color = 0.0;
-	float accum = 0.0;
-	float2 offset;
-	float weight;
-
-	[unroll]
-	for (int x = -MAGIC_BLOOM_3_BLUR_SAMPLES / 2; x <= MAGIC_BLOOM_3_BLUR_SAMPLES / 2; ++x) {
-		[unroll]
-		for (int y = -MAGIC_BLOOM_3_BLUR_SAMPLES / 2; y <= MAGIC_BLOOM_3_BLUR_SAMPLES / 2; ++y) {
-			offset = float2(x, y);
-			weight = gaussian2D(offset);
-
-			color += i_reinhard(_tex2D(sp, uv + ps * offset).rgb) * weight;
-			accum += weight;
-		}
-	}
-
-	color /= accum;
-	return color;
+	return float4(color, mask);
 }
 
 float2 get_offset(int i) {
 	static const float2 offset[max_steps] = {
 		float2(0.0, 0.0),
-		float2(0.7, 0.0),
-		float2(0.6, 0.35),
-		float2(0.725, 0.35),
-		float2(0.55, 0.485),
-		float2(0.5875, 0.485),
-		float2(0.6125, 0.485),
-		float2(0.63125, 0.485)
+		float2(0.8, 0.0),
+		float2(0.7, 0.45),
+		float2(0.85, 0.45),
+		float2(0.5, 0.685),
+		float2(0.6, 0.685),
+		float2(0.725, 0.685),
+		float2(0.825, 0.685)
 	};
 	return offset[i];
 }
@@ -586,13 +593,13 @@ float PS_CalcAdapt(
 	float4 position : SV_POSITION,
 	float2 uv       : TEXCOORD
 ) : SV_TARGET {
-	float3 color = tex2Dlod(sMagicBloom3_A, float4(0.5, 0.5, 0.0, max_mip - fAdapt_Precision)).rgb;
+	float3 color = tex2Dlod(sA, float4(0.5, 0.5, 0.0, max_mip - fAdapt_Precision)).rgb;
 	float adapt = get_luma_linear(color.rgb);
 	adapt *= fAdapt_Sensitivity;
 	adapt = bAdapt_DoLimit ? clamp(adapt, f2Adapt_MinMax.x, f2Adapt_MinMax.y) : adapt;
 
 	#if !MAGIC_BLOOM_3_ADAPT_NO_DELAY
-	float last = tex2D(sMagicBloom3_LastAdapt, uv).x;
+	float last = tex2D(sLastAdapt, uv).x;
 	adapt = lerp(last, adapt, delta_time() / fAdapt_Delay);
 	#endif
 
@@ -604,7 +611,7 @@ float PS_SaveAdapt(
 	float4 position : SV_POSITION,
 	float2 uv       : TEXCOORD
 ) : SV_TARGET {
-	return tex2D(sMagicBloom3_Adapt, uv).x;
+	return tex2D(sAdapt, uv).x;
 }
 #endif
 #endif
@@ -613,7 +620,7 @@ float4 PS_Split(
 	float4 position : SV_POSITION,
 	float2 uv       : TEXCOORD
 ) : SV_TARGET {
-	float3 color = 0.0;
+	float4 color = 0.0;
 	float lod;
 	float2 lod_uv;
 
@@ -624,60 +631,46 @@ float4 PS_Split(
 		
 		// Padding to avoid darkened edges (sort of like a vignette)
 		if (within(lod_uv, float4(-pad.x, 1.0 + pad.x, -pad.y, 1.0 + pad.y)))
-			color += tex2Dlod(sMagicBloom3_A, float4(lod_uv, 0.0, i)).rgb;
+			color += float4(tex2Dlod(sA, float4(lod_uv, 0.0, i)).rgb, 1.0);
 	}
 
-	return float4(color, 1.0);
+	return color;
 }
 
 float4 PS_BlurX(
 	float4 position : SV_POSITION,
 	float2 uv       : TEXCOORD
 ) : SV_TARGET {
-	/*
-		Fix the bloom aspect ratio
-
-		Here we actually "counter stretch" the texture,
-		so we can negate the distortion caused by writing
-		to the 1:1 textures.
-	*/
-	#if BUFFER_WIDTH > BUFFER_HEIGHT
-	uv = scale_uv(uv, float2(1, BUFFER_WIDTH / BUFFER_HEIGHT));
-	#elif BUFFER_HEIGHT > BUFFER_WIDTH
-	uv = scale_uv(uv, float2(BUFFER_HEIGHT / BUFFER_WIDTH, 1));
-	#endif
-	
-	float3 color = blur1D(
-		sMagicBloom3_B,
+	return blur(
+		sB,
 		uv,
-		float2(BUFFER_WIDTH / MAGIC_BLOOM_3_RESOLUTION, 0.0)
+		float2(1.0, 0.0)
 	);
-	return float4(color, 1.0);
 }
 
 float4 PS_BlurY(
 	float4 position : SV_POSITION,
 	float2 uv       : TEXCOORD
 ) : SV_TARGET {
-	float3 color = blur1D(
-		sMagicBloom3_A,
+	float4 color = blur(
+		sA,
 		uv,
-		float2(0.0, BUFFER_HEIGHT / MAGIC_BLOOM_3_RESOLUTION)
+		float2(0.0, 1.0)
 	);
 
 	#if MAGIC_BLOOM_3_GHOSTING
-	float3 last = tex2D(sMagicBloom3_Last, uv).rgb;
+	float3 last = tex2D(sLast, uv).rgb;
 	float t = (fGhosting * 100.0) / fFrameTime;
 
 	#if !MAGIC_BLOOM_3_NO_ADAPT
 	if (bAdapt_AffectGhosting)
-		t /= 1.0 + tex2D(sMagicBloom3_Adapt, uv).x * 10.0;
+		t /= 1.0 + tex2D(sAdapt, uv).x * 10.0;
 	#endif
 
-	color = lerp(last, color, saturate(1.0 / t));
+	color.rgb = lerp(last, color.rgb, saturate(1.0 / t));
 	#endif
 
-	return float4(color, 1.0);
+	return color;
 }
 
 #if MAGIC_BLOOM_3_GHOSTING
@@ -685,40 +678,34 @@ float4 PS_SaveLast(
 	float4 position : SV_POSITION,
 	float2 uv       : TEXCOORD
 ) : SV_TARGET {
-	return float4(tex2D(sMagicBloom3_B, uv).rgb, 1.0);
+	return float4(tex2D(sB, uv).rgb, 1.0);
 }
 #endif
-
-float4 PS_FixAspect(
-	float4 position : SV_POSITION,
-	float2 uv       : TEXCOORD
-) : SV_TARGET {
-	/*
-		Fix the bloom aspect ratio
-
-		Now we undo the "counter stretch" and get the
-		texture with a nicely preserved aspect ratio.
-	*/
-	#if BUFFER_WIDTH > BUFFER_HEIGHT
-	uv = scale_uv(uv, 1.0 / float2(1, BUFFER_WIDTH / BUFFER_HEIGHT));
-	#elif BUFFER_HEIGHT > BUFFER_WIDTH
-	uv = scale_uv(uv, 1.0 / float2(BUFFER_HEIGHT / BUFFER_WIDTH, 1));
-	#endif
-
-	return float4(tex2D(sMagicBloom3_B, uv).rgb, 1.0);
-}
 
 float4 PS_Blend(
 	float4 position : SV_POSITION,
 	float2 uv       : TEXCOORD
 ) : SV_TARGET {
+	// sBloom is the last-written bloom texture, sA or sB
+	#define sBloom sB
+
 	#if MAGIC_BLOOM_3_DEBUG
-	if (iDebug == 2) // Show unscaled textures
-		return float4(t_reinhard(tex2D(sMagicBloom3_A, uv).rgb), 1.0);
+	if (iDebug == 2) { // Show unscaled textures
+		float4 bloom = tex2D(sBloom, uv);
+		float2 coord = floor(uv * ReShade::ScreenSize * 0.05);
+		float checkers = fmod(coord.x + coord.y, 2.0);
+		checkers = 1.0 - (checkers * 0.25 + 0.5);
+
+		if (bloom.a == 0.0)
+			return float4(checkers.xxx, 1.0);
+		else
+			return float4(bloom.rgb, 1.0);
+		//return float4(t_reinhard(bloom.rgb), 1.0);
+	}
 
 	#if !MAGIC_BLOOM_3_NO_ADAPT
 	if (iDebug == 3) // Show adaptation texture
-		return float4(tex2D(sMagicBloom3_Adapt, uv).x, 0.0, 0.0, 1.0);
+		return float4(tex2D(sAdapt, uv).x, 0.0, 0.0, 1.0);
 	#endif
 	#endif
 
@@ -743,10 +730,10 @@ float4 PS_Blend(
 		#endif
 
 		#if MAGIC_BLOOM_3_DISTRIBUTION != NORMAL
-		bloom += tex2D(sMagicBloom3_A, lod_uv).rgb * weight;
+		bloom += tex2D(sBloom, lod_uv).rgb * weight;
 		accum += weight;
 		#else
-		bloom += tex2D(sMagicBloom3_A, lod_uv).rgb;
+		bloom += tex2D(sBloom, lod_uv).rgb;
 		#endif
 	}
 	
@@ -757,7 +744,7 @@ float4 PS_Blend(
 	#endif
 
 	#if !MAGIC_BLOOM_3_NO_DIRT
-	float3 dirt = tex2D(sMagicBloom3_Dirt, uv).rgb;
+	float3 dirt = tex2D(sDirt, uv).rgb;
 	bloom += dirt * bloom * fDirt_Intensity;
 	#endif
 
@@ -770,13 +757,21 @@ float4 PS_Blend(
 	color = i_reinhard(color);
 
 	#if !MAGIC_BLOOM_3_NO_ADAPT
-	float adapt = tex2D(sMagicBloom3_Adapt, uv).x;
+	float adapt = tex2D(sAdapt, uv).x;
 	float exposure = fAdapt_Exposure / max(adapt, 1.0 / fMaxBrightness);
 
 	bloom *= (iAdapt_Mode == 2) ? exposure : 1.0;
 	#endif
 
+	#if MAGIC_BLOOM_3_TINTING
+	bloom *= f3Bloom_Tint;
+	#endif
+
+	#if MAGIC_BLOOM_3_REDUCE_INTENSITY
+	color += bloom * fBloom_Intensity / fMaxBrightness;
+	#else
 	color += bloom * fBloom_Intensity;
+	#endif
 
 	#if !MAGIC_BLOOM_3_NO_ADAPT
 	color *= (iAdapt_Mode == 1) ? exposure : 1.0;
@@ -830,11 +825,11 @@ technique MagicBloom3 {
 		RenderTarget = tMagicBloom3_Last;
 	}
 	#endif
-	pass FixAspect {
+	/*pass FixAspect {
 		VertexShader = PostProcessVS;
 		PixelShader  = PS_FixAspect;
 		RenderTarget = tMagicBloom3_A;
-	}
+	}*/
 	pass Blend {
 		VertexShader    = PostProcessVS;
 		PixelShader     = PS_Blend;
