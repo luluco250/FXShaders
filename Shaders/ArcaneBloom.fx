@@ -12,6 +12,10 @@ namespace ArcaneBloom { namespace _ {
 #define SRGB 1
 #define CUSTOM 2
 
+#ifndef ARCANE_BLOOM_USE_DIRT
+#define ARCANE_BLOOM_USE_DIRT 0
+#endif
+
 #ifndef ARCANE_BLOOM_USE_CUSTOM_DISTRIBUTION
 #define ARCANE_BLOOM_USE_CUSTOM_DISTRIBUTION 0
 #endif
@@ -103,6 +107,19 @@ uniform float uBloomIntensity <
 	ui_max     = 100.0;
 	ui_step    = 0.01;
 > = 1.0;
+
+#if ARCANE_BLOOM_USE_DIRT
+
+uniform float uDirtIntensity <
+	ui_label = "Dirt Intensity";
+	ui_tooltip = "Default: 1.0";
+	ui_type = "drag";
+	ui_min = 0.0;
+	ui_max = 100.0;
+	ui_step = 0.01;
+> = 1.0;
+
+#endif
 
 #if ARCANE_BLOOM_USE_TEMPERATURE
 
@@ -292,6 +309,21 @@ sampler2D sLastAdapt {
 };
 #endif
 
+#if ARCANE_BLOOM_USE_DIRT
+
+texture2D tArcaneBloom_Dirt <
+	source = "ArcaneBloom_Dirt.png";
+> {
+	Width = BUFFER_WIDTH;
+	Height = BUFFER_HEIGHT;
+};
+sampler2D sDirt {
+	Texture = tArcaneBloom_Dirt;
+	SRGBTexture = true;
+};
+
+#endif
+
   //===========//
  // Functions //
 //===========//
@@ -303,6 +335,26 @@ float get_bloom_weight(int i) {
 	return normal_distribution(i, uMean, uVariance);
 	#endif
 }
+
+float3 blend_overlay(float3 a, float3 b, float w) {
+	float3 c = lerp(
+		2.0 * a * b,
+		1.0 - 2.0 * (1.0 - a) * (1.0 - b),
+		step(0.5, a)
+	);
+	return lerp(a, c, w);
+}
+
+#if ARCANE_BLOOM_USE_DIRT
+
+float3 apply_dirt(float3 bloom, float2 uv) {
+	float3 dirt = tex2D(sDirt, uv).rgb;
+	//return blend_overlay(bloom, dirt, uDirtIntensity);
+
+	return lerp(bloom, mad(bloom, dirt, bloom), uDirtIntensity);
+}
+
+#endif
 
   //=========//
  // Shaders //
@@ -385,6 +437,10 @@ MAKE_SHADER(Blend) {
 				 + tex2D(sBloom3, uv).rgb * get_bloom_weight(3)
 				 + tex2D(sBloom4, uv).rgb * get_bloom_weight(4)
 				 + tex2D(sBloom5, uv).rgb * get_bloom_weight(5);
+	
+	#if ARCANE_BLOOM_USE_DIRT
+	bloom = apply_dirt(bloom, uv);
+	#endif
 
 	#if ARCANE_BLOOM_NORMALIZE_BRIGHTNESS
 	color += bloom * uBloomIntensity / uMaxBrightness;
@@ -434,6 +490,10 @@ MAKE_SHADER(DisplayTexture) {
 				 + tex2D(sBloom3, uv).rgb * get_bloom_weight(3)
 				 + tex2D(sBloom4, uv).rgb * get_bloom_weight(4)
 				 + tex2D(sBloom5, uv).rgb * get_bloom_weight(5);
+	
+	#if ARCANE_BLOOM_USE_DIRT
+	bloom = apply_dirt(bloom, uv);
+	#endif
 	
 	#if ARCANE_BLOOM_NORMALIZE_BRIGHTNESS
 	bloom = bloom * uBloomIntensity / uMaxBrightness;
