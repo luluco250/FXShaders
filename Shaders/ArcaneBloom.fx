@@ -40,6 +40,10 @@ namespace ArcaneBloom { namespace _ {
 #define ARCANE_BLOOM_GAMMA_MODE SRGB
 #endif
 
+#ifndef ARCANE_BLOOM_DEBUG
+#define ARCANE_BLOOM_DEBUG 0
+#endif
+
 #define MAKE_SHADER(NAME) \
 float4 PS_##NAME( \
 	float4 position : SV_POSITION, \
@@ -421,6 +425,53 @@ MAKE_SHADER(Blend) {
 	return float4(color, 1.0);
 }
 
+#if ARCANE_BLOOM_DEBUG
+
+MAKE_SHADER(DisplayTexture) {
+	float3 bloom = tex2D(sBloom0, uv).rgb * get_bloom_weight(0)
+	             + tex2D(sBloom1, uv).rgb * get_bloom_weight(1)
+				 + tex2D(sBloom2, uv).rgb * get_bloom_weight(2)
+				 + tex2D(sBloom3, uv).rgb * get_bloom_weight(3)
+				 + tex2D(sBloom4, uv).rgb * get_bloom_weight(4)
+				 + tex2D(sBloom5, uv).rgb * get_bloom_weight(5);
+	
+	#if ARCANE_BLOOM_NORMALIZE_BRIGHTNESS
+	bloom = bloom * uBloomIntensity / uMaxBrightness;
+	#else
+	bloom = bloom * uBloomIntensity;
+	#endif
+
+	#if ARCANE_BLOOM_USE_ADAPTATION
+	//float adapt = tex2Dfetch(sAdapt, (int4)0).x;
+	float adapt = tex2D(sAdapt, 0).x;
+	float exposure = uExposure / max(adapt, 0.001);
+
+	bloom *= lerp(1.0, exposure, uAdapt_Intensity);
+	
+	#if ARCANE_BLOOM_WHITE_POINT_FIX
+	float white = uWhitePoint * lerp(1.0, exposure, uAdapt_Intensity);
+	#endif
+
+	#else
+	bloom *= uExposure;
+
+	#if ARCANE_BLOOM_WHITE_POINT_FIX
+	float white = uWhitePoint * uExposure;
+	#endif
+
+	#endif
+
+	bloom = reinhard(bloom);
+
+	#if ARCANE_BLOOM_WHITE_POINT_FIX
+	bloom /= reinhard(white);
+	#endif
+
+	return float4(bloom, 1.0);
+}
+
+#endif
+
   //============//
  // Techniques //
 //============//
@@ -460,5 +511,16 @@ technique ArcaneBloom {
 		#endif
 	}
 }
+
+#if ARCANE_BLOOM_DEBUG
+
+technique ArcaneBloom_DisplayTexture {
+	pass {
+		VertexShader = PostProcessVS;
+		PixelShader = PS_DisplayTexture;
+	}
+}
+
+#endif
 
 }}
