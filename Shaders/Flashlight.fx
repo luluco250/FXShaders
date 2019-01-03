@@ -1,3 +1,9 @@
+/*
+	Flashlight shader by luluco250
+
+	MIT Licensed.
+*/
+
 #include "ReShade.fxh"
 
 #ifndef FLASHLIGHT_NO_DEPTH
