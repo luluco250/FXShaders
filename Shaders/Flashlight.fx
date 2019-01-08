@@ -91,7 +91,7 @@ float4 PS_Flashlight(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET {
 
 	#if !FLASHLIGHT_NO_DEPTH
 	float depth = 1.0 - ReShade::GetLinearizedDepth(uv);
-	depth = pow(depth, 1.0 / uDistance);
+	depth = pow(abs(depth), 1.0 / uDistance);
 	flashlight *= depth;
 	#endif
 
@@ -101,7 +101,8 @@ float4 PS_Flashlight(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET {
 	float3 result = 1.0 + colored_flashlight * uBrightness;
 
 	float3 color = tex2D(sColor, uv).rgb;
-	color *= result;
+	// Add some minimum amount of light to very dark pixels.
+	color = max(color * result, (result - 1.0) * 0.001);
 
 	return float4(color, 1.0);
 }
