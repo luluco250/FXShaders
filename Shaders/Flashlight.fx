@@ -14,6 +14,10 @@
 #define FLASHLIGHT_NO_TEXTURE 0
 #endif
 
+#ifndef FLASHLIGHT_NO_BLEND_FIX
+#define FLASHLIGHT_NO_BLEND_FIX 0
+#endif
+
 uniform float uBrightness <
 	ui_label = "Brightness";
 	ui_tooltip =
@@ -101,8 +105,14 @@ float4 PS_Flashlight(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET {
 	float3 result = 1.0 + colored_flashlight * uBrightness;
 
 	float3 color = tex2D(sColor, uv).rgb;
-	// Add some minimum amount of light to very dark pixels.
-	color = max(color * result, (result - 1.0) * 0.001);
+	color *= result;
+
+	#if FLASHLIGHT_NO_BLEND_FIX
+	
+	// Add some minimum amount of light to very dark pixels.	
+	color = max(color, (result - 1.0) * 0.001);
+	
+	#endif
 
 	return float4(color, 1.0);
 }
