@@ -107,8 +107,8 @@ float4 PS_Flashlight(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET {
 	float3 color = tex2D(sColor, uv).rgb;
 	color *= result;
 
-	#if FLASHLIGHT_NO_BLEND_FIX
-	
+	#if !FLASHLIGHT_NO_BLEND_FIX
+
 	// Add some minimum amount of light to very dark pixels.	
 	color = max(color, (result - 1.0) * 0.001);
 	
