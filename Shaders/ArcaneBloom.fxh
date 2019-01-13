@@ -43,13 +43,15 @@ namespace ArcaneBloom {
 		DEF_BLOOM_TEX(Bloom2, 8);
 		DEF_BLOOM_TEX(Bloom3, 16);
 		DEF_BLOOM_TEX(Bloom4, 32);
-		DEF_BLOOM_TEX(Bloom5, 64);
+		//DEF_BLOOM_TEX(Bloom5, 64);
 
 		#undef DEF_BLOOM_TEX
 
+		#if ARCANE_BLOOM_USE_ADAPTATION
 		texture2D tArcaneBloom_Adapt {
 			Format = R32F;
 		};
+		#endif
 	}
 
 	#define DEF_BLOOM_SAMPLER(NAME) \
@@ -62,7 +64,7 @@ namespace ArcaneBloom {
 	DEF_BLOOM_SAMPLER(Bloom2);
 	DEF_BLOOM_SAMPLER(Bloom3);
 	DEF_BLOOM_SAMPLER(Bloom4);
-	DEF_BLOOM_SAMPLER(Bloom5);
+	//DEF_BLOOM_SAMPLER(Bloom5);
 
 	#undef DEF_BLOOM_SAMPLER
 
@@ -148,9 +150,12 @@ namespace ArcaneBloom {
 	}
 
 	float normal_distribution(float x, float mean, float variance) {
-		float v = variance * variance;
-		float a = 1.0 / sqrt(2.0 * cPI * v);
-		float b = ((x - mean) * (x - mean)) / (2.0 * v);
-		return a * exp(-(b));
+		float sigma = variance * variance;
+		float a = 1.0 / sqrt(2.0 * cPI * sigma);
+		float b = x - mean;
+		b *= b;
+		b /= 2.0 * sigma;
+
+		return a * exp(-b);
 	}
 }
