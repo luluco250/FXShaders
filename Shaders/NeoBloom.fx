@@ -633,6 +633,8 @@ float4 PS_Blend(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET {
 
 	#endif
 
+	#if NEO_BLOOM_DEBUG
+
 	switch (uDebugOptions) {
 		case 1:
 			if (uBloomTextureToShow == -1) {
@@ -668,6 +670,8 @@ float4 PS_Blend(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET {
 			return color;
 		#endif
 	}
+
+	#endif
 
 	color += bloom;
 
