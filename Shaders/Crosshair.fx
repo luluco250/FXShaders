@@ -1,5 +1,11 @@
 #include "ReShade.fxh"
 
+struct Rect {
+	float2 position;
+	float2 size;
+	float2 pivot;
+};
+
 static const float cPi = 3.14159;
 static const float cDegreesToRadians = cPi / 180;
 static const float cRadiansToDegrees = 180 / cPi;
@@ -23,7 +29,7 @@ uniform float uSeparation <
 		"\nDefault: 1";
 	ui_type = "slider";
 	ui_min = 0;
-	ui_max = 100;
+	ui_max = 200;
 	ui_step = 1;
 > = 1;
 
@@ -69,7 +75,7 @@ uniform float uCircle <
 		"\nDefault: 0";
 	ui_type = "slider";
 	ui_min = 0;
-	ui_max = 100;
+	ui_max = 200;
 	ui_step = 1;
 > = 0;
 
@@ -81,6 +87,18 @@ uniform float uCircleThickness <
 	ui_type = "slider";
 	ui_min = 0;
 	ui_max = 10;
+	ui_step = 1;
+> = 2;
+
+uniform float uBorderSize <
+	ui_label = "Border Size";
+	ui_tooltip =
+		"Size of the crosshair's border.\n"
+		"Set to 0 to disable it.\n"
+		"\nDefault: 2";
+	ui_type = "slider";
+	ui_min = 0;
+	ui_max = 6;
 	ui_step = 1;
 > = 2;
 
@@ -117,6 +135,22 @@ uniform float4 uColor <
 	ui_type = "color";
 > = float4(0.0, 1.0, 0.0, 1.0);
 
+uniform float4 uBorderColor <
+	ui_label = "Border Color";
+	ui_tooltip =
+		"Color of the crosshair's border.\n"
+		"\nDefault: 0.0 0.0 0.0 1.0";
+	ui_type = "color";
+> = float4(0.0, 0.0, 0.0, 1.0);
+
+uniform bool uInvertColor <
+	ui_label = "Use Color Inversion";
+	ui_tooltip =
+		"If enabled the crosshair will be colored the inverse of the image "
+		"color underneath it (but keeping the border color).\n"
+		"\nDefault: Off";
+> = false;
+
 uniform bool uShowTop <
 	ui_label = "Show Top Cross";
 	ui_tooltip = "Default: On";
@@ -147,31 +181,87 @@ uniform float2 uDepthRange <
 		"Determines the range of depth that affects the crosshair.\n"
 		"Values outside this range will be clamped.\n"
 		"\nDefault: 0.0 1.0";
+	ui_category = "Depth";
 	ui_type = "drag";
 	ui_min = 0.0;
 	ui_max = 1.0;
 	ui_step = 0.001;
 > = float2(0.0, 1.0);
 
-uniform float uSeparationDepth <
-	ui_label = "Separation Depth Scale";
+uniform float uDepthFarSeparation <
+	ui_label = "Far Separation";
 	ui_tooltip =
-		"How larger the separation becomes with depth changes.\n"
-		"A value of 1.0 disables this.\n"
-		"\nDefault: 1.0";
-	ui_type = "drag";
-	ui_min = 1.0;
-	ui_max = 10.0;
-	ui_step = 0.01;
-> = 1.0;
+		"Amount of separation for far objects.\n"
+		"You can disable this by setting it lower or equal to the normal "
+		"separation.\n"
+		"\nDefault: 1";
+	ui_category = "Depth";
+	ui_type = "slider";
+	ui_min = 1;
+	ui_max = 200;
+	ui_step = 1;
+> = 1;
 
-uniform float uTimer <source = "timer";>;
+uniform float uDepthFarCircle <
+	ui_label = "Far Circle";
+	ui_tooltip =
+		"Size of the circle for far objects.\n"
+		"You can disable this by setting it to lower or equal to the normal "
+		"circle.\n"
+		"\nDefault: 1";
+	ui_category = "Depth";
+	ui_type = "slider";
+	ui_min = 0;
+	ui_max = 200;
+	ui_step = 1;
+> = 0;
+
+uniform float2 uDepthColorRange <
+	ui_label = "Color Range";
+	ui_tooltip =
+		"Range for the depth-based colors.\n"
+		"First value: maximum distance for the near color.\n"
+		"Second value: minimum distance for the far color.\n"
+		"You can disable this by setting both values to 0.0.\n"
+		"\nDefault: 0.0 0.0";
+	ui_type = "slider";
+	ui_min = 0.0;
+	ui_max = 1.0;
+> = float2(0.0, 0.0);
+
+uniform float4 uDepthNearColor <
+	ui_label = "Near Color";
+	ui_tooltip =
+		"Color of the crosshair when pointing at near objects.\n"
+		"\nDefault: 255 255 255 255";
+	ui_type = "color";
+> = float4(1.0, 0.0, 0.0, 1.0);
+
+uniform float4 uDepthFarColor <
+	ui_label = "Far Color";
+	ui_tooltip =
+		"Color of the crosshair when pointing at far objects.\n"
+		"\nDefault: 255 255 255 255";
+	ui_type = "color";
+> = float4(1.0, 1.0, 0.0, 1.0);
+
+uniform float uRightClickSeparation <
+	ui_label = "Right Click Separation";
+	ui_tooltip =
+		"Separation applied while the right mouse button is held.\n"
+		"You can disable this by setting it to greater or equal to the normal "
+		"separation.\n"
+		"\nDefault: 0";
+	ui_type = "slider";
+	ui_min = 0;
+	ui_max = 200;
+	ui_step = 1;
+> = 0;
+
+uniform bool uRightClick <source = "mousebutton"; keycode = 1; mode = "";>;
 
 float2 scale_uv(float2 uv, float2 scale, float2 origin) {
 	return (uv - origin) * scale + origin;
-}
-float2 scale_uv(float2 uv, float2 scale) {
-	return scale_uv(uv, scale, 0.5);
 }
 
 float2 rotate_uv(float2 uv, float angle_radians, float2 origin) {
@@ -184,25 +274,60 @@ float2 rotate_uv(float2 uv, float angle_radians, float2 origin) {
 		uv.x * s + uv.y * c
 	) + origin;
 }
-float2 rotate_uv(float2 uv, float angle_radians) {
-	return rotate_uv(uv, angle_radians, 0.5);
+
+float2 apply_pivot(Rect rect) {
+	return rect.position - rect.size * rect.pivot;
 }
 
-// Returns 1.0 if the point is inside the rect, 0.0 otherwise.
-// The rect's pivot/origin is determined as:
-//   .x => Left<->Right
-//   .y => Top<->Bottom
-float inside(float2 uv, float4 rect, float2 pivot) {
-	rect.xy -= (rect.zw - rect.xy) * pivot;
+float inside(float2 uv, Rect rect, float margin) {
+	float2 pos = apply_pivot(rect);
 
 	return
-		step(rect.x, uv.x) *
-		step(uv.x, rect.x + rect.z) *
-		step(rect.y, uv.y) *
-		step(uv.y, rect.y + rect.w);
+		step(pos.x - margin, uv.x) *
+		step(uv.x, pos.x + rect.size.x + margin) *
+		step(pos.y - margin, uv.y) *
+		step(uv.y, pos.y + rect.size.y + margin);
 }
-float inside(float2 uv, float4 rect) {
-	return inside(uv, rect, 0.0);
+
+void draw_line(
+	inout float crosshair,
+	inout float border,
+	float2 uv,
+	float2 pos,
+	float sep,
+	float2 size,
+	float2 pivot
+) {
+	pos += sep - sep * 2.0 * pivot;
+	Rect r;
+	r.position = pos;
+	r.size = size;
+	r.pivot = pivot;
+
+	crosshair += inside(uv, r, 0.0);
+	border += inside(uv, r, uBorderSize);
+}
+
+void draw_circle(
+	inout float crosshair,
+	inout float border,
+	float2 uv,
+	float2 pos,
+	float radius
+) {
+	float dist = distance(pos, uv);
+	
+	crosshair +=
+		step(radius, dist) *
+		step(dist, radius + uCircleThickness);
+	border +=
+		step(radius - uBorderSize, dist) *
+		step(dist, radius + uCircleThickness + uBorderSize) *
+		step(1.0, uCircle + uCircleThickness);
+}
+
+float3 inverse(float3 color) {
+	return 1.0 - lerp(0.5, color, 2.0);
 }
 
 float4 PS_Crosshair(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET {
@@ -212,7 +337,7 @@ float4 PS_Crosshair(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET {
 	float2 center =
 		uPosition *
 		ReShade::ScreenSize +
-		float2(-uOffset.x, uOffset.y) * 0.5;
+		float2(-uOffset.x, uOffset.y);
 	
 	coord = rotate_uv(coord, uRotation * -cQuarterPi, center);
 	//coord += 0.5;
@@ -220,95 +345,64 @@ float4 PS_Crosshair(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET {
 	float depth = ReShade::GetLinearizedDepth(center * ReShade::PixelSize);
 	depth = clamp(depth, uDepthRange.x, uDepthRange.y);
 	depth -= uDepthRange.x;
-	depth /= uDepthRange.y - uDepthRange.x;
+	depth *= 1.0 + (uDepthRange.y - uDepthRange.x);
 	
-	float sep = uSeparation * 0.5;
-	sep *= lerp(1.0, uSeparationDepth, depth);
-
-	float size = uSize * 0.5;
-	float thick = uThickness * 0.5;
-	float start, end, crosshair = 0;
-
-	// TODO: Replace manual positioning with rects.
+	float2 size = float2(uSize, uThickness);
+	float sep = lerp(uSeparation, max(uSeparation, uDepthFarSeparation), depth);
+	sep = uRightClick ? min(uRightClickSeparation, sep) : sep;
+	
+	float border = 0.0;
+	float crosshair = 0.0;
 
 	// Left.
-	if (uShowLeft) {
-		/*
-		crosshair += inside(
-			coord - center,
-			float4(-sep, 0.0, uSize, uThickness),
-			float2(1.0, 0.5)
+	if (uShowLeft)
+		draw_line(
+			crosshair, border, coord, center, sep, size, float2(1.0, 0.5)
 		);
-		*/
 
-		start = center.x - sep;
-		end = start - size;
-		crosshair +=
-			step(coord.x, start) *
-			step(end, coord.x) *
-			step(center.y - thick, coord.y) *
-			step(coord.y, center.y + thick);
-	}
-
-	
 	// Right.
-	if (uShowRight) {
-		/*
-		crosshair += inside(
-			coord - center,
-			float4(sep, 0.0, uSize, uThickness),
-			float2(0.0, 0.5)
+	if (uShowRight)
+		draw_line(
+			crosshair, border, coord, center, sep, size, float2(0.0, 0.5)
 		);
-		*/
-
-		start = center.x + sep;
-		end = start + size;
-		crosshair +=
-			step(start, coord.x) *
-			step(coord.x, end) *
-			step(center.y - thick, coord.y) *
-			step(coord.y, center.y + thick);
-	}
-	
+		
 	// Top.
-	if (uShowTop) {
-		/*
-		crosshair += inside(
-			coord - center + float2(0.0, sep),
-			float4(0.0, 0.0, uThickness, uSize),
-			float2(0.5, 0.0)
+	if (uShowTop)
+		draw_line(
+			crosshair, border, coord, center, sep, size.yx, float2(0.5, 1.0)
 		);
-		*/
-
-		start = center.y - sep;
-		end = start - size;
-		crosshair +=
-			step(coord.y, start) *
-			step(end, coord.y) *
-			step(center.x - thick, coord.x) *
-			step(coord.x, center.x + thick);
-	}
 
 	// Bottom.
-	if (uShowBottom) {
-		start = center.y + sep;
-		end = start + size;
-		crosshair +=
-			step(start, coord.y) *
-			step(coord.y, end) *
-			step(center.x - thick, coord.x) *
-			step(coord.x, center.x + thick);
-	}
+	if (uShowBottom)
+		draw_line(
+			crosshair, border, coord, center, sep, size.yx, float2(0.5, 0.0)
+		);
 	
 	// Circle.
-	float circle = uCircle * 0.5;
-	float circle_thick = uCircleThickness * 0.5;
-	float circle_dist = distance(center, coord);
-	crosshair +=
-		step(circle, circle_dist) *
-		step(circle_dist, circle + circle_thick);
+	float circle = lerp(uCircle, max(uDepthFarCircle, uCircle), depth);
+	draw_circle(crosshair, border, coord, center, circle);
 
-	color = lerp(color, uColor.rgb, min(crosshair, 1.0) * uColor.a);
+	border = min(border, 1.0);
+	crosshair = min(crosshair, 1.0);
+
+	float3 backup_color = color.rgb;
+
+	if (uInvertColor) {
+		color.rgb = lerp(color.rgb, inverse(backup_color), crosshair);
+	} else {
+		float4 ch_color = uColor;
+
+		//if (uDepthColorRange.x > 0.0 || uDepthColorRange.y > 0.0)
+			//ch_color = lerp(uDepthNearColor, uDepthFarColor, depth);
+			/*if (depth <= uDepthColorRange.x)
+				ch_color = lerp(uDepthNearColor, ch_color, depth / uDepthColorRange.x);
+			else if (depth >= uDepthColorRange.y)
+				ch_color = lerp(ch_color, uDepthFarColor, depth / (1.0 - uDepthColorRange.y));*/
+
+		color.rgb = lerp(color.rgb, uBorderColor.rgb, border * uBorderColor.a);
+		color.rgb = lerp(color.rgb, ch_color.rgb, crosshair * ch_color.a);
+	}
+	
 	return float4(color, 1.0);
 }
 
