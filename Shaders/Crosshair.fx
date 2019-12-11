@@ -391,13 +391,11 @@ float4 PS_Crosshair(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET {
 		color.rgb = lerp(color.rgb, inverse(backup_color), crosshair);
 	} else {
 		float4 ch_color = uColor;
+		
+		depth = smoothstep(uDepthRange.x, uDepthRange.y, depth);
 
-		//if (uDepthColorRange.x > 0.0 || uDepthColorRange.y > 0.0)
-			//ch_color = lerp(uDepthNearColor, uDepthFarColor, depth);
-			/*if (depth <= uDepthColorRange.x)
-				ch_color = lerp(uDepthNearColor, ch_color, depth / uDepthColorRange.x);
-			else if (depth >= uDepthColorRange.y)
-				ch_color = lerp(ch_color, uDepthFarColor, depth / (1.0 - uDepthColorRange.y));*/
+		ch_color = lerp(uDepthNearColor, ch_color, smoothstep(0.0, uDepthColorRange.x, depth));
+		ch_color = lerp(ch_color, uDepthFarColor, smoothstep(uDepthColorRange.y, 1.0, depth));
 
 		color.rgb = lerp(color.rgb, uBorderColor.rgb, border * uBorderColor.a);
 		color.rgb = lerp(color.rgb, ch_color.rgb, crosshair * ch_color.a);
