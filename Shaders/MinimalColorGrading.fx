@@ -1,6 +1,8 @@
 /*
 	Adapted from
 	http://filmicworlds.com/blog/minimal-color-grading-tools/
+
+	Work-in-progress.
 */
 // #region Preprocessor
 
