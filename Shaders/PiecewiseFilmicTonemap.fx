@@ -10,15 +10,55 @@
 #include "ReShade.fxh"
 #include "ReShadeUI.fxh"
 
+#ifndef PIECEWISE_FILMIC_TONEMAP_USE_DIRECT_PARAMS
+#define PIECEWISE_FILMIC_TONEMAP_USE_DIRECT_PARAMS 0
+#endif
+
 //#endregion
 
 //#region Constants
 
-static const float EPSILON = 1e-5;
+static const float EPSILON = 1e-3;
 
 //#endregion
 
 //#region Uniforms
+
+#if PIECEWISE_FILMIC_TONEMAP_USE_DIRECT_PARAMS
+
+uniform float2 Point0
+<
+	__UNIFORM_SLIDER_FLOAT2
+
+	ui_min = 0.0;
+	ui_max = 1.0;
+> = float2(0.25, 0.25);
+
+uniform float2 Point1
+<
+	__UNIFORM_SLIDER_FLOAT2
+
+	ui_min = 0.0;
+	ui_max = 1.0;
+> = float2(0.75, 0.75);
+
+uniform float Whitepoint
+<
+	__UNIFORM_SLIDER_FLOAT1
+
+	ui_min = 0.0;
+	ui_max = 1.0;
+> = 1.0;
+
+uniform float2 Overshoot
+<
+	__UNIFORM_SLIDER_FLOAT2
+
+	ui_min = 0.0;
+	ui_max = 1.0;
+> = float2(0.0, 0.0);
+
+#else
 
 uniform float ToeStrength
 <
@@ -65,6 +105,8 @@ uniform float ShoulderAngle
 	ui_max = 1.0;
 > = 0.0;
 
+#endif
+
 uniform float Gamma
 <
 	__UNIFORM_SLIDER_FLOAT1
@@ -84,10 +126,10 @@ sampler BackBuffer
 	MinFilter = POINT;
 	MagFilter = POINT;
 	MipFilter = POINT;
-	SRGBTexture = true;
+	//SRGBTexture = true;
 };
 
-texture PiecewiseFilmicTonemap_HDRBackBufferTex <pooled = true;>
+/*texture PiecewiseFilmicTonemap_HDRBackBufferTex <pooled = true;>
 {
 	Width = BUFFER_WIDTH;
 	Height = BUFFER_HEIGHT;
@@ -99,7 +141,8 @@ sampler HDRBackBuffer
 	MinFilter = POINT;
 	MagFilter = POINT;
 	MipFilter = POINT;
-};
+	//SRGBTexture = true;
+};*/
 
 //#endregion
 
@@ -221,7 +264,7 @@ float FullCurve_eval(FullCurve self, float x)
 	float norm_x = x * self.inv_w;
 	int index = (norm_x < self.p0.x) ? 0 : ((norm_x < self.p1.x) ? 1 : 2);
 	CurveSegment segment = FullCurve_get_segment(self, index);
-	return CurveSegment_eval(segment, x);
+	return CurveSegment_eval(segment, norm_x);
 }
 //#endregion
 
@@ -257,7 +300,7 @@ FullCurve create_curve(CurveParamsDirect params)
 	curve.w = params.w;
 	curve.inv_w = rcp(params.w);
 
-	params.w = 1.0;
+	//params.w = 1.0;
 	params.p0.x /= params.w;
 	params.p1.x /= params.w;
 	params.overshoot.x /= params.w;
@@ -330,13 +373,14 @@ FullCurve create_curve(CurveParamsDirect params)
 	return curve;
 }
 
+#if !PIECEWISE_FILMIC_TONEMAP_USE_DIRECT_PARAMS
+
 CurveParamsDirect calc_direct_params_from_user()
 {
 	CurveParamsDirect params = CurveParamsDirect_new();
 
 	float perceptual_gamma = 2.2;
-	float toe_length = ToeLength;
-	toe_length = pow(abs(toe_length), perceptual_gamma);
+	float toe_length = pow(abs(ToeLength), perceptual_gamma);
 
 	params.p0.x = toe_length * 0.5;
 	params.p0.y = (1.0 - ToeStrength) * params.p0.x;
@@ -361,9 +405,21 @@ CurveParamsDirect calc_direct_params_from_user()
 	return params;
 }
 
+#endif
+
 float3 apply_filmic_curve(float3 color)
 {
+	#if PIECEWISE_FILMIC_TONEMAP_USE_DIRECT_PARAMS
+
+	CurveParamsDirect params = CurveParamsDirect_new(
+		Point0, Point1, Whitepoint, Overshoot, Gamma);
+
+	#else
+
 	CurveParamsDirect params = calc_direct_params_from_user();
+
+	#endif
+
 	FullCurve curve = create_curve(params);
 
 	return float3(
@@ -388,21 +444,18 @@ float4 MainPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 	//color.rgb = inv_reinhard(color.rgb, inv_max_hdr);
 
 	color.rgb = apply_filmic_curve(color.rgb);
-	
-	if (dot(color.rgb, 0.333) == 0.0)
-		color.rgb = float3(1.0, 0.0, 0.0);
 
 	return color;
 }
 
-float4 ToLDRPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
+/*float4 ToLDRPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 {
 	return tex2D(HDRBackBuffer, uv);
-}
+}*/
 
 float4 DebugPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 {
-	float4 color = tex2D(HDRBackBuffer, uv);
+	float4 color = tex2D(ReShade::BackBuffer, uv);
 	float2 ps = ReShade::PixelSize * 4.0;
 	
 	uv.x = apply_filmic_curve(uv.x).x;
@@ -425,14 +478,14 @@ technique PiecewiseFilmicTonemap
 	{
 		VertexShader = PostProcessVS;
 		PixelShader = MainPS;
-		RenderTarget = PiecewiseFilmicTonemap_HDRBackBufferTex;
+		//RenderTarget = PiecewiseFilmicTonemap_HDRBackBufferTex;
+		SRGBWriteEnable = true;
 	}
-	pass ToLDR
+	/*pass ToLDR
 	{
 		VertexShader = PostProcessVS;
 		PixelShader = ToLDRPS;
-		SRGBWriteEnable = true;
-	}
+	}*/
 }
 
 technique PiecewiseFilmicTonemap_Debug
