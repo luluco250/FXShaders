@@ -60,6 +60,15 @@ uniform float2 Overshoot
 
 #else
 
+uniform int FixWhitepoint
+<
+	__UNIFORM_COMBO_INT1
+
+	ui_label = "Fix Whitepoint";
+	ui_tooltip = "Default: Divide by curve(white)";
+	ui_items = "Off\0Divide by curve(white)\0Multiply by curve_inv(white)\0";
+> = 1;
+
 uniform float ToeStrength
 <
 	__UNIFORM_SLIDER_FLOAT1
@@ -217,6 +226,16 @@ float CurveSegment_eval(CurveSegment self, float x)
 	
 	return p0.y * self.scale.y + self.offset.y;
 }
+
+float CurveSegment_eval_inv(CurveSegment self, float y)
+{
+	float2 p0 = float2(0.0, (y - self.offset.y) / self.scale.y);
+
+	if (p0.y > 0.0)
+		p0.x = exp((log(p0.y) - self.ln_a) / self.b);
+	
+	return p0.x / self.scale.x + self.offset.x;
+}
 //#endregion
 
 //#region FullCurve
@@ -265,6 +284,15 @@ float FullCurve_eval(FullCurve self, float x)
 	int index = (norm_x < self.p0.x) ? 0 : ((norm_x < self.p1.x) ? 1 : 2);
 	CurveSegment segment = FullCurve_get_segment(self, index);
 	return CurveSegment_eval(segment, norm_x);
+}
+
+float FullCurve_eval_inv(FullCurve self, float y)
+{
+	int index = (y < self.p0.y) ? 0 : ((y < self.p1.y) ? 1 : 2);
+	CurveSegment segment = FullCurve_get_segment(self, index);
+	
+	float norm_x = CurveSegment_eval_inv(segment, y);
+	return norm_x * self.w;
 }
 //#endregion
 
@@ -422,10 +450,24 @@ float3 apply_filmic_curve(float3 color)
 
 	FullCurve curve = create_curve(params);
 
-	return float3(
+	color = float3(
 		FullCurve_eval(curve, color.r),
 		FullCurve_eval(curve, color.g),
 		FullCurve_eval(curve, color.b));
+	
+	#if !PIECEWISE_FILMIC_TONEMAP_USE_DIRECT_PARAMS
+	switch (FixWhitepoint)
+	{
+		case 1:
+			color /= FullCurve_eval(curve, 1.0);
+			break;
+		case 2:
+			color *= FullCurve_eval_inv(curve, 1.0);
+			break;
+	}
+	#endif
+
+	return color;
 }
 
 float3 inv_reinhard(float3 color, float inv_max) 
@@ -455,13 +497,73 @@ float4 MainPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 
 float4 DebugPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 {
-	float4 color = tex2D(ReShade::BackBuffer, uv);
-	float2 ps = ReShade::PixelSize * 4.0;
-	
-	uv.x = apply_filmic_curve(uv.x).x;
-	uv.y = 1.0 - uv.y;
+	#if PIECEWISE_FILMIC_TONEMAP_USE_DIRECT_PARAMS
 
-	float line_ = step(uv.x, uv.y + ps.y) * step(uv.y - ps.y, uv.x);
+	CurveParamsDirect params = CurveParamsDirect_new(
+		Point0, Point1, Whitepoint, Overshoot, Gamma);
+
+	#else
+
+	CurveParamsDirect params = calc_direct_params_from_user();
+
+	#endif
+
+	FullCurve curve = create_curve(params);
+
+	float4 color = tex2D(ReShade::BackBuffer, uv);
+	float y = 1.0 - uv.y;
+
+	y *= 2.0;
+
+	float2 p0 = step(y, params.p0);
+	p0.x *= step(uv.x, 0.01);
+	p0.y *= step(0.01, uv.x) * step(uv.x, 0.02);
+	color.rgb = lerp(color.rgb, float3(1.0, 0.0, 0.0), p0.x);
+	color.rgb = lerp(color.rgb, float3(0.0, 1.0, 0.0), p0.y);
+
+	float2 p1 = step(y, params.p1);
+	p1.x *= step(0.02, uv.x) * step(uv.x, 0.03);
+	p1.y *= step(0.03, uv.x) * step(uv.x, 0.04);
+	color.rgb = lerp(color.rgb, float3(1.0, 0.0, 0.5), p1.x);
+	color.rgb = lerp(color.rgb, float3(0.0, 1.0, 0.5), p1.y);
+
+	float w = step(y, params.w);
+	w *= step(0.04, uv.x) * step(uv.x, 0.05);
+	color.rgb = lerp(color.rgb, 1.0, w);
+
+	float2 overshoot = step(y, params.overshoot);
+	overshoot.x *= step(0.05, uv.x) * step(uv.x, 0.06);
+	overshoot.y *= step(0.06, uv.x) * step(uv.x, 0.07);
+	color.rgb = lerp(color.rgb, float3(1.0, 0.0, 1.0), overshoot.x);
+	color.rgb = lerp(color.rgb, float3(0.0, 1.0, 1.0), overshoot.y);
+
+	float gamma = step(y, (params.gamma - 1.0) / 4.0);
+	gamma *= step(0.07, uv.x) * step(uv.x, 0.08);
+	color.rgb  = lerp(color.rgb, float3(1.0, 1.0, 0.0), gamma);
+
+	float ruler = y % 0.025;
+	ruler = step(0.024, ruler);
+	ruler *= step(uv.x, 0.1);
+	color.rgb = lerp(color.rgb, 1.0 - color.rgb, ruler);
+
+	float x = FullCurve_eval(curve, uv.x);
+
+	#if !PIECEWISE_FILMIC_TONEMAP_USE_DIRECT_PARAMS
+	switch (FixWhitepoint)
+	{
+		case 1:
+			x /= FullCurve_eval(curve, 1.0);
+			break;
+		case 2:
+			x *= FullCurve_eval_inv(curve, 1.0);
+			break;
+	}
+	#endif
+	
+	y *= 0.5;
+
+	float2 ps = ReShade::PixelSize * 4.0;
+	float line_ = step(x, y + ps.y) * step(y - ps.y, x);
 
 	color.rgb = lerp(color.rgb, 1.0 - color.rgb, line_);
 
