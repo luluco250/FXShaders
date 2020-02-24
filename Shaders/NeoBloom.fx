@@ -356,12 +356,12 @@ uniform float3 DepthMultiplier
 		" - The first value defines the multiplier for near depth.\n"
 		" - The second value defines the multiplier for middle depth.\n"
 		" - The third value defines the multiplier for far depth.\n"
-		"\nDefault: 0.5 1.0 2.0";
+		"\nDefault: 1.0 1.0 1.0";
 	ui_category = "Depth";
 	ui_min = 0.0;
 	ui_max = 10.0;
 	ui_step = 0.01;
-> = float3(0.5, 1.0, 2.0);
+> = float3(1.0, 1.0, 1.0);
 
 uniform float2 DepthRange
 <
