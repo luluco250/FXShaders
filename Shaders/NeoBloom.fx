@@ -56,6 +56,10 @@
 #define NEO_BLOOM_GHOSTING_DOWN_SCALE (NEO_BLOOM_DOWN_SCALE / 4.0)
 #endif
 
+#ifndef NEO_BLOOM_DEPTH
+#define NEO_BLOOM_DEPTH 1
+#endif
+
 // #endregion
 
 // #region Constants
@@ -91,6 +95,18 @@ static const float2 PIXEL_SCALE = float2(1.0, ReShade::AspectRatio);
 
 static const float2 PIXEL_SCALE = 1.0;
 
+// "Enum" for the debug options.
+static const int DebugOption_None = 0;
+static const int DebugOption_OnlyBloom = 1;
+static const int DebugOption_SplitTextures = 2;
+static const int DebugOption_Adaptation = 3;
+
+#if NEO_BLOOM_ADAPT
+static const int DebugOption_DepthRange = 4;
+#else
+static const int DebugOption_DepthRange = 3;
+#endif
+
 // #endregion
 
 // #region Uniforms
@@ -100,6 +116,7 @@ static const float2 PIXEL_SCALE = 1.0;
 uniform float Intensity 
 <
 	__UNIFORM_SLIDER_FLOAT1
+
 	ui_label = "Intensity";
 	ui_tooltip =
 		"Determines how much bloom is added to the image. For HDR games you'd "
@@ -115,6 +132,7 @@ uniform float Intensity
 uniform float Saturation 
 <
 	__UNIFORM_SLIDER_FLOAT1
+
 	ui_label = "Saturation";
 	ui_tooltip =
 		"Saturation of the bloom texture.\n"
@@ -129,6 +147,7 @@ uniform float Saturation
 uniform float LensDirtAmount 
 <
 	__UNIFORM_SLIDER_FLOAT1
+
 	ui_label = "Amount";
 	ui_tooltip =
 		"Determines how much lens dirt is added to the bloom texture.\n"
@@ -147,6 +166,7 @@ uniform float LensDirtAmount
 uniform float AdaptAmount 
 <
 	__UNIFORM_SLIDER_FLOAT1
+
 	ui_label = "Amount";
 	ui_tooltip =
 		"How much adaptation affects the image brightness.\n"
@@ -162,6 +182,7 @@ uniform float AdaptAmount
 uniform float AdaptSensitivity 
 <
 	__UNIFORM_SLIDER_FLOAT1
+
 	ui_label = "Sensitivity";
 	ui_tooltip =
 		"How sensitive is the adaptation towards bright spots?\n"
@@ -174,6 +195,7 @@ uniform float AdaptSensitivity
 uniform float AdaptExposure 
 <
 	__UNIFORM_SLIDER_FLOAT1
+
 	ui_label = "Exposure";
 	ui_tooltip =
 		"Determines the general brightness that the effect should adapt "
@@ -199,6 +221,7 @@ uniform bool AdaptUseLimits
 uniform float2 AdaptLimits 
 <
 	__UNIFORM_SLIDER_FLOAT2
+
 	ui_label = "Limits";
 	ui_tooltip =
 		"The minimum and maximum values that adaptation can achieve.\n"
@@ -216,6 +239,7 @@ uniform float2 AdaptLimits
 uniform float AdaptTime 
 <
 	__UNIFORM_SLIDER_FLOAT1
+
 	ui_label = "Time";
 	ui_tooltip =
 		"The time it takes for the effect to adapt.\n"
@@ -228,6 +252,7 @@ uniform float AdaptTime
 uniform float AdaptPrecision 
 <
 	__UNIFORM_SLIDER_FLOAT1
+
 	ui_label = "Precision";
 	ui_tooltip =
 		"How precise adaptation will be towards the center of the image.\n"
@@ -244,6 +269,7 @@ uniform float AdaptPrecision
 uniform int AdaptFormula 
 <
 	__UNIFORM_COMBO_INT1
+
 	ui_label = "Formula";
 	ui_tooltip =
 		"Which formula to use when extracting brightness information from "
@@ -260,6 +286,7 @@ uniform int AdaptFormula
 uniform float Mean 
 <
 	__UNIFORM_SLIDER_FLOAT1
+
 	ui_label = "Mean";
 	ui_tooltip =
 		"Acts as a bias between all the bloom textures/sizes. What this means "
@@ -278,6 +305,7 @@ uniform float Mean
 uniform float Variance 
 <
 	__UNIFORM_SLIDER_FLOAT1
+
 	ui_label = "Variance";
 	ui_tooltip =
 		"Determines the 'variety'/'contrast' in bloom textures/sizes. This "
@@ -302,6 +330,7 @@ uniform float Variance
 uniform float GhostingAmount 
 <
 	__UNIFORM_SLIDER_FLOAT1
+
 	ui_label = "Amount";
 	ui_tooltip =
 		"Amount of ghosting applied.\n"
@@ -315,11 +344,63 @@ uniform float GhostingAmount
 
 #endif
 
+#if NEO_BLOOM_DEPTH
+
+uniform float3 DepthMultiplier
+<
+	__UNIFORM_DRAG_FLOAT3
+
+	ui_label = "Multiplier";
+	ui_tooltip =
+		"Defines the multipliers that will be applied to each range in depth.\n"
+		" - The first value defines the multiplier for near depth.\n"
+		" - The second value defines the multiplier for middle depth.\n"
+		" - The third value defines the multiplier for far depth.\n"
+		"\nDefault: 0.5 1.0 2.0";
+	ui_category = "Depth";
+	ui_min = 0.0;
+	ui_max = 10.0;
+	ui_step = 0.01;
+> = float3(0.5, 1.0, 2.0);
+
+uniform float2 DepthRange
+<
+	__UNIFORM_DRAG_FLOAT2
+
+	ui_label = "Range";
+	ui_tooltip = 
+		"Defines the depth range for thee depth multiplier.\n"
+		" - The first value defines the start of the middle depth."
+		" - The second value defines the end of the middle depth and the start "
+		"of the far depth."
+		"\nDefault: 0.0 1.0";
+	ui_category = "Depth";
+	ui_min = 0.0;
+	ui_max = 1.0;
+	ui_step = 0.001;
+> = float2(0.0, 1.0);
+
+uniform float DepthSmoothness
+<
+	__UNIFORM_DRAG_FLOAT1
+
+	ui_label = "Smoothness";
+	ui_tooltip =
+		"Amount of smoothness in the transition between depth ranges.\n"
+		"\nDefault: 1.0";
+	ui_min = 0.0;
+	ui_max = 1.0;
+	ui_step = 0.001;
+> = 1.0;
+
+#endif
+
 // HDR
 
 uniform float MaxBrightness 
 <
 	__UNIFORM_DRAG_FLOAT1
+
 	ui_label  = "Max Brightness";
 	ui_tooltip =
 		"Determines the maximum brightness a pixel can achieve from being "
@@ -353,6 +434,7 @@ uniform bool NormalizeBrightness
 uniform float Sigma 
 <
 	__UNIFORM_DRAG_FLOAT1
+
 	ui_label = "Sigma";
 	ui_tooltip =
 		"Amount of blurriness. Values too high will break the blur.\n"
@@ -367,6 +449,7 @@ uniform float Sigma
 uniform float Padding 
 <
 	__UNIFORM_DRAG_FLOAT1
+
 	ui_label = "Padding";
 	ui_tooltip =
 		"Specifies an additional padding that is added around each bloom "
@@ -392,6 +475,7 @@ uniform float Padding
 uniform int DebugOptions 
 <
 	__UNIFORM_COMBO_INT1
+
 	ui_label = "Debug Options";
 	ui_tooltip =
 		"Debug options containing:\n"
@@ -410,12 +494,16 @@ uniform int DebugOptions
 		#if NEO_BLOOM_ADAPT
 		"Show Adaptation\0"
 		#endif
+		#if NEO_BLOOM_DEPTH
+		"Show Depth Range\0"
+		#endif
 		;
 > = false;
 
 uniform int BloomTextureToShow 
 <
 	__UNIFORM_SLIDER_INT1
+
 	ui_label = "Bloom Texture To Show";
 	ui_tooltip =
 		"Which bloom texture to show with the 'Show Only Bloom' debug option.\n"
@@ -636,11 +724,31 @@ float get_luma_linear(float3 color)
 float4 DownSamplePS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET 
 {
 	float4 color = tex2D(BackBuffer, uv);
-	
+
 	color.rgb = saturate(
 		lerp(get_luma_linear(color.rgb), color.rgb, Saturation));
 	
 	color.rgb = inv_reinhard_lum(color.rgb, 1.0 / MaxBrightness);
+
+	#if NEO_BLOOM_DEPTH
+	float3 depth = ReShade::GetLinearizedDepth(uv);
+
+	float is_near = smoothstep(
+		depth - DepthSmoothness,
+		depth + DepthSmoothness,
+		DepthRange.x);
+	
+	float is_far = smoothstep(
+		DepthRange.y - DepthSmoothness,
+		DepthRange.y + DepthSmoothness, depth);
+	
+	float is_middle = (1.0 - is_near) * (1.0 - is_far);
+
+	color.rgb *= lerp(1.0, DepthMultiplier.x, is_near);
+	color.rgb *= lerp(1.0, DepthMultiplier.y, is_middle);
+	color.rgb *= lerp(1.0, DepthMultiplier.z, is_far);
+
+	#endif
 	
 	return color;
 }
@@ -791,7 +899,7 @@ float4 BlendPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 
 	switch (DebugOptions) 
 	{
-		case 1:
+		case DebugOption_OnlyBloom:
 			if (BloomTextureToShow == -1) 
 			{
 				color.rgb = reinhard(bloom.rgb);
@@ -810,7 +918,7 @@ float4 BlendPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 			}
 
 			return color;
-		case 2:
+		case DebugOption_SplitTextures:
 			color = tex2D(TempA, uv);
 			color.rgb = lerp(checkered_pattern(uv), color.rgb, color.a);
 			color.a = 1.0;
@@ -818,12 +926,32 @@ float4 BlendPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 			return color;
 		
 		#if NEO_BLOOM_ADAPT
-		case 3:
+		case DebugOption_Adaptation:
 			color = tex2Dlod(
 				DownSample,
 				float4(uv, 0.0, NEO_BLOOM_TEXTURE_MIP_LEVELS - AdaptPrecision)
 			);
 			color.rgb = reinhard(color.rgb);
+			return color;
+		#endif
+		#if NEO_BLOOM_DEPTH
+		case DebugOption_DepthRange:
+			float depth = ReShade::GetLinearizedDepth(uv);
+			
+			color.r = smoothstep(0.0, DepthRange.x, depth);
+			color.g = smoothstep(DepthRange.x, DepthRange.y, depth);
+			color.b = smoothstep(DepthRange.y, 1.0, depth);
+
+			color.r *= smoothstep(
+				depth - DepthSmoothness,
+				depth + DepthSmoothness,
+				DepthRange.x);
+			
+			color.g *= smoothstep(
+				depth - DepthSmoothness,
+				depth + DepthSmoothness,
+				DepthRange.y);
+
 			return color;
 		#endif
 	}
