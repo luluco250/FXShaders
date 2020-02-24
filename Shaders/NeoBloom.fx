@@ -148,6 +148,9 @@ uniform float LensDirtAmount
 <
 	__UNIFORM_SLIDER_FLOAT1
 
+	ui_text =
+		"Set NEO_BLOOM_DIRT to 0 to disable this feature to reduce resource "
+		"usage.";
 	ui_label = "Amount";
 	ui_tooltip =
 		"Determines how much lens dirt is added to the bloom texture.\n"
@@ -167,12 +170,12 @@ uniform float AdaptAmount
 <
 	__UNIFORM_SLIDER_FLOAT1
 
+	ui_text =
+		"Set NEO_BLOOM_ADAPT to 0 to disable this feature to reduce resource "
+		"usage.";
 	ui_label = "Amount";
 	ui_tooltip =
 		"How much adaptation affects the image brightness.\n"
-		"Setting this to 0 disables adaptation, though a more performant "
-		"option would be to set the macro 'NEO_BLOOM_ADAPT' to 0 in the global "
-		"preprocessor definitions.\n"
 		"\bDefault: 1.0";
 	ui_category = "Adaptation";
 	ui_min = 0.0;
@@ -331,11 +334,12 @@ uniform float GhostingAmount
 <
 	__UNIFORM_SLIDER_FLOAT1
 
+	ui_text =
+		"Set NEO_BLOOM_GHOSTING to 0 if you don't use this feature to reduce "
+		"resource usage.";
 	ui_label = "Amount";
 	ui_tooltip =
 		"Amount of ghosting applied.\n"
-		"Set NEO_BLOOM_GHOSTING to 0 if you don't use it for reducing resource "
-		"usage.\n"
 		"\nDefault: 0.0";
 	ui_category = "Ghosting";
 	ui_min = 0.0;
@@ -350,6 +354,9 @@ uniform float3 DepthMultiplier
 <
 	__UNIFORM_DRAG_FLOAT3
 
+	ui_text =
+		"Set NEO_BLOOM_DEPTH to 0 if you don't use this feature to reduce "
+		"resource usage.";
 	ui_label = "Multiplier";
 	ui_tooltip =
 		"Defines the multipliers that will be applied to each range in depth.\n"
@@ -403,7 +410,8 @@ uniform float MaxBrightness
 
 	ui_label  = "Max Brightness";
 	ui_tooltip =
-		"Determines the maximum brightness a pixel can achieve from being "
+		"tl;dr: HDR contrast.\n"
+		"\nDetermines the maximum brightness a pixel can achieve from being "
 		"'reverse-tonemapped', that is to say, when the effect attempts to "
 		"extract HDR information from the image.\n"
 		"In practice, the difference between a value of 100 and one of 1000 "
@@ -476,6 +484,9 @@ uniform int DebugOptions
 <
 	__UNIFORM_COMBO_INT1
 
+	ui_text =
+		"Set NEO_BLOOM_DEBUG to 0 if you don't use this feature to reduce "
+		"resource usage.";
 	ui_label = "Debug Options";
 	ui_tooltip =
 		"Debug options containing:\n"
@@ -484,9 +495,6 @@ uniform int DebugOptions
 		"visualize.\n"
 		"  - Showing the raw internal texture used to blur all the bloom "
 		"'textures', visualizing all the blooms at once in scale.\n"
-		"\nIf you don't need debug options, you may set the macro "
-		"'NEO_BLOOM_DEBUG' to 0 in the global preprocessor definitions to "
-		"disable them for a potential performance gain.\n"
 		"\nDefault: None";
 	ui_category = "Debug";
 	ui_items =
