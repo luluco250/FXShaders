@@ -1,95 +1,199 @@
-#include "ReShade.fxh"
-#include "KeyCodes.fxh"
+//#region Preprocessor
 
-#ifndef ZOOM_KEY
-#define ZOOM_KEY KEY_ALT
+#include "ReShade.fxh"
+#include "ReShadeUI.fxh"
+
+// Alt key.
+#ifndef ZOOM_HOTKEY
+#define ZOOM_HOTKEY 0x12
+#endif
+
+#ifndef ZOOM_USE_MOUSE_BUTTON
+#define ZOOM_USE_MOUSE_BUTTON 0
+#endif
+
+#ifndef ZOOM_MOUSE_BUTTON
+#define ZOOM_MOUSE_BUTTON 1
 #endif
 
 #ifndef ZOOM_TOGGLE
-#define ZOOM_TOGGLE false
+#define ZOOM_TOGGLE 0
 #endif
 
-#ifndef ZOOM_FILTER
-#define ZOOM_FILTER LINEAR
+#ifndef ZOOM_REVERSE
+#define ZOOM_REVERSE 0
 #endif
 
-uniform float fZoom <
-	ui_label   = "Zoom Scale";
-	ui_tooltip = "How much zoom to apply to the image.\n"
-	             "Fractional values zoom out.\n"
-				 "\nDefault: 10.0";
-	ui_type    = "drag";
-	ui_min     = 0.01;
-	ui_max     = 100.0;
-	ui_step    = 0.01;
-> = 10.0;
+#ifndef ZOOM_ALWAYS_ZOOM
+#define ZOOM_ALWAYS_ZOOM 0
+#endif
 
-uniform float2 f2Center <
-	ui_label   = "Center";
-	ui_tooltip = "Where on the screen to zoom into.\n"
-	             "Coordinates are in the 0.0<->1.0 range.\n"
-				 "(0.5, 0.5) is the middle of the screen.\n"
-				 "\nDefault: (0.5, 0.5)";
-	ui_type    = "drag";
-	ui_min     = 0.0;
-	ui_max     = 1.0;
-	ui_step    = 0.001;
-> = float2(0.5, 0.5);
+#ifndef ZOOM_USE_LINEAR_FILTERING
+#define ZOOM_USE_LINEAR_FILTERING 1
+#endif
 
-uniform bool bFollowMouse <
-	ui_label   = "Follow Mouse";
-	ui_tooltip = "May not be accurate.\n"
-	             "\nDefault: Off";
-> = false;
+//#endregion
 
-uniform float2 f2Mouse <source = "mousepoint";>;
+//#region Uniforms
 
-uniform bool bZoomKey <
-	#ifdef ZOOM_MOUSE_BUTTON
-	source  = "mousebutton";
-	keycode = ZOOM_MOUSE_BUTTON;
-	#else
-	source  = "key";
-	keycode = ZOOM_KEY;
-	#endif
-	toggle  = ZOOM_TOGGLE;
+uniform int _Help
+<
+	ui_text =
+		"To use this effect, set the ZOOM_HOTKEY to the virtual key code of "
+		"the keyboard key you'd like to use for zooming. The default key code "
+		"is 0x12, which represents the alt key.\n"
+		"You can check for the available key codes by searching \"virtual key "
+		"codes\" on the internet.\n"
+		"\n"
+		"Alternatively you can set ZOOM_USE_MOUSE_BUTTON to 1 to use a mouse "
+		"button instead of a keyboard key, setting ZOOM_MOUSE_BUTTON to the "
+		"number of the button you want to use.\n"
+		"The available mouse buttons are:\n"
+		" 0 - Left.\n"
+		" 1 - Right.\n"
+		" 2 - Middle.\n"
+		" 3 - Extra 1.\n"
+		" 4 - Extra 2.\n"
+		"\n"
+		"Setting ZOOM_TOGGLE to 1 will make the effect toggle when the hotkey/"
+		"mouse button is pressed, instead of only being in effect while it's "
+		"held down.\n"
+		"\n"
+		"Setting ZOOM_REVERSE to 1 will make the effect be active when the set "
+		"hotkey/mouse button is *not* being held or toggled and vice versa.\n"
+		"\n"
+		"Setting ZOOM_ALWAYS_ZOOM will simply cause the effect to always be "
+		"enabled. This will obviously override ZOOM_REVERSE.\n"
+		"This can be combined with ReShade's own toggle hotkey mechanism to "
+		"disable the effect entirely instead of using hotkey logic inside it.\n"
+		"\n"
+		"Setting ZOOM_USE_LINEAR_FILTERING to 0 will cause the zoomed image to "
+		"be pixelated, instead of being smooth filtered.\n"
+		"Note that this filter is a native hardware feature, usually enabled "
+		"by default, and shouldn't impact performance.\n"
+		;
+	ui_category = "Help";
+	ui_category_closed = true;
+	ui_label = " ";
+	ui_type = "radio";
 >;
 
-sampler2D sBackBuffer {
-	Texture   = ReShade::BackBufferTex;
-	MinFilter = ZOOM_FILTER;
-	MagFilter = ZOOM_FILTER;
-	MipFilter = ZOOM_FILTER;
-	AddressU  = BORDER;
-	AddressV  = BORDER;
+uniform float ZoomAmount
+<
+	__UNIFORM_SLIDER_FLOAT1
+
+	ui_label = "Zoom Amount";
+	ui_tooltip =
+		"Amount of zoom applied to the image.\n"
+		"\nDefault: 10.0";
+	ui_min = 1.0;
+	ui_max = 100.0;
+> = 10.0;
+
+uniform float2 CenterPoint
+<
+	__UNIFORM_DRAG_FLOAT2
+
+	ui_label = "Center Point";
+	ui_tooltip =
+		"The center point of zoom in the screen.\n"
+		"Viewport scale is used, thus:\n"
+		" (0.5, 0.5) - Center.\n"
+		" (0.0, 0.0) - Top left.\n"
+		" (1.0, 0.0) - Top right.\n"
+		" (1.0, 1.0) - Bottom right.\n"
+		" (0.0, 1.0) - Bottom left.\n"
+		"\nDefault: 0.5 0.5";
+	ui_min = 0.0;
+	ui_max = 1.0;
+	ui_step = 0.001;
+> = float2(0.5, 0.5);
+
+uniform bool FollowMouse
+<
+	ui_label = "Follow Mouse";
+	ui_tooltip =
+		"When enabled, the center point becomes the mouse cursor position.\n"
+		"May not work with certain games due to how they may handle mouse "
+		"input.\n"
+		"\nDefault: Off";
+> = false;
+
+uniform float2 MousePoint < source = "mousepoint"; >;
+
+uniform bool ShouldZoom
+<
+	#if ZOOM_USE_MOUSE_BUTTON
+		source = "mousebutton";
+		keycode = ZOOM_MOUSE_BUTTON;
+	#else
+		source = "key";
+		keycode = ZOOM_HOTKEY;
+	#endif
+
+	#if ZOOM_TOGGLE
+		mode = "toggle";
+	#endif
+>;
+
+//#endregion
+
+//#region Textures
+
+sampler BackBuffer
+{
+	Texture = ReShade::BackBufferTex;
+
+	#if !ZOOM_USE_LINEAR_FILTERING
+	MagFilter = POINT;
+	#endif
 };
 
-float2 scale_uv(float2 uv, float2 scale, float2 center) {
-	return (uv - center) * scale + center;
+//#endregion
+
+//#region Functions
+
+float2 scale_uv(float2 uv, float2 scale, float2 pivot)
+{
+	return mad((uv - pivot), scale, pivot);
 }
 
-float2 scale_uv(float2 uv, float2 scale) {
-	return scale_uv(uv, scale, 0.5);
+//#endregion
+
+//#region Shaders
+
+float4 MainPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
+{
+	float2 pivot = FollowMouse ? MousePoint * ReShade::PixelSize : 0.5;
+	pivot = saturate(pivot);
+
+	uv =
+		#if !ZOOM_ALWAYS_ZOOM
+			#if ZOOM_REVERSE
+				!
+			#endif
+			ShouldZoom ?
+		#endif
+		scale_uv(uv, rcp(ZoomAmount), pivot)
+		#if !ZOOM_ALWAYS_ZOOM
+			: uv
+		#endif
+		;
+	
+	return tex2D(BackBuffer, uv);
 }
 
-float4 PS_Zoom(
-	float4 pos : SV_POSITION, 
-	float2 uv : TEXCOORD
-) : SV_TARGET {
-	float2 mouse_pos = clamp(f2Mouse, 0.0, ReShade::ScreenSize) * ReShade::PixelSize;
-	float2 uv_zoom = scale_uv(
-		uv, 
-		bZoomKey ? (1.0 / fZoom) : 1.0, 
-		bFollowMouse ? mouse_pos : f2Center
-	);
+//#endregion
 
-	float3 color = tex2D(sBackBuffer, uv_zoom).rgb;
-	return float4(color, 1.0);
-}
+//#region Technique
 
-technique Zoom {
-	pass {
+technique Zoom
+{
+	pass
+	{
 		VertexShader = PostProcessVS;
-		PixelShader = PS_Zoom;
+		PixelShader = MainPS;
 	}
 }
+
+//#endregion
