@@ -1,0 +1,333 @@
+/*
+	Arcane Bloom v0.0.1 by luluco250
+
+	Copyright (c) 2018 Lucas Melo
+
+	Permission is hereby granted, free of charge, to any person obtaining a copy
+	of this software and associated documentation files (the "Software"), to deal
+	in the Software without restriction, including without limitation the rights
+	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+	copies of the Software, and to permit persons to whom the Software is
+	furnished to do so, subject to the following conditions:
+
+	The above copyright notice and this permission notice shall be included in all
+	copies or substantial portions of the Software.
+
+	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+	AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+	SOFTWARE.
+*/
+
+#include "ReShade.fxh"
+#include "ArcaneBloom.fxh"
+
+#ifndef ARCANE_BLOOM_NO_INV_TONEMAP
+#define ARCANE_BLOOM_NO_INV_TONEMAP 0
+#endif
+
+#ifndef ARCANE_BLOOM_INV_TONEMAP_PRESERVE_COLORS
+#define ARCANE_BLOOM_INV_TONEMAP_PRESERVE_COLORS 1
+#endif
+
+#ifndef ARCANE_BLOOM_REDUCE_INTENSITY
+#define ARCANE_BLOOM_REDUCE_INTENSITY 1
+#endif
+
+uniform float fBloom_Intensity <
+	ui_label   = "Bloom Intensity";
+	ui_tooltip = "How much bloom to apply to the image.\n"
+	             "\nDefault: 1.0";
+	ui_type    = "drag";
+	ui_min     = 0.0;
+	ui_max     = 100.0;
+	ui_step    = 0.001;
+> = 1.0;
+
+#if ARCANE_BLOOM_NO_INV_TONEMAP
+uniform float fBloom_Threshold <
+	ui_label   = "Bloom Threshold";
+	ui_tooltip = "Default: 3.0";
+	ui_type    = "drag";
+	ui_min     = 1.0;
+	ui_max     = 10.0;
+	ui_step    = 0.001;
+> = 3.0;
+#endif
+
+uniform float fExposure <
+	ui_label   = "Exposure";
+	ui_tooltip = "Default: 1.0";
+	ui_type    = "drag";
+	ui_min     = 0.001;
+	ui_max     = 3.0;
+	ui_step    = 0.001;
+> = 1.0;
+
+uniform float fAdapt_Delay <
+	ui_label   = "Adapt Delay";
+	ui_tooltip = "Default: 1.0";
+	ui_type    = "drag";
+	ui_min     = 0.05;
+	ui_max     = 100.0;
+	ui_step    = 0.01;
+> = 1.0;
+
+uniform float fAdapt_Sensitivity <
+	ui_label   = "Adaptation Sensitivity";
+	ui_tooltip = "Default: 1.0";
+	ui_type    = "drag";
+	ui_min     = 0.0;
+	ui_max     = 10.0;
+	ui_step    = 0.001;
+> = 1.0;
+
+uniform bool bAdapt_Clamp <
+	ui_label   = "Clamp Adaptation";
+	ui_tooltip = "Default: Off";
+> = false;
+
+uniform float2 f2Adapt_MinMax <
+	ui_label   = "Adaptation Min/Max";
+	ui_tooltip = "Default: (0.0, 1.0)";
+	ui_type    = "drag";
+	ui_min     = 0.0;
+	ui_max     = 10.0;
+	ui_step    = 0.001;
+> = float2(0.0, 1.0);
+
+uniform float fAdapt_Precision <
+	ui_label   = "Adaptation Precision";
+	ui_tooltip = "Default: 11.0";
+	ui_type    = "drag";
+	ui_min     = 0.0;
+	ui_max     = 11.0;
+	ui_step    = 1.0;
+> = 0.0;
+
+uniform float2 f2Blur_Scale <
+	ui_label   = "Blur Scale";
+	ui_tooltip = "Default: (1.0, 1.0)";
+	ui_type    = "drag";
+	ui_min     = 1.0;
+	ui_max     = 10.0;
+	ui_step    = 0.001;
+> = float2(1.0, 1.0);
+
+uniform float fBlur_Sigma <
+	ui_label   = "Blur Sigma";
+	ui_tooltip = "Default: 1.0";
+	ui_type    = "drag";
+	ui_min     = 1.0;
+	ui_max     = 10.0;
+	ui_step    = 0.001;
+> = 1.0;
+
+uniform float fMaxBrightness <
+	ui_label   = "Max Brightness";
+	ui_tooltip = "The maximum brightness extracted from the image.\n"
+	             "\nDefault: 100.0";
+	ui_type    = "drag";
+	ui_min     = 1.0;
+	ui_max     = 1000.0;
+	ui_step    = 1.0;
+> = 100.0;
+
+uniform float fFrameTime <source = "frametime";>;
+
+sampler2D sBackBuffer {
+	Texture     = ReShade::BackBufferTex;
+	SRGBTexture = true;
+	MinFilter   = LINEAR;
+	MagFilter   = LINEAR;
+	MipFilter   = LINEAR;
+};
+sampler2D sBackBuffer_Point {
+	Texture     = ReShade::BackBufferTex;
+	SRGBTexture = true;
+	MinFilter   = POINT;
+	MagFilter   = POINT;
+	MipFilter   = POINT;
+};
+
+namespace ArcaneBloom {
+	float3 downsample(sampler2D sp, float2 uv, float2 res) {
+		float2 ps = 1.0 / res;
+		ps.y *= ReShade::AspectRatio;
+
+		//ps *= 1024.0 / res;
+
+		return blur2D(sp, uv, 6, ps * f2Blur_Scale, fBlur_Sigma);
+	}
+
+	float3 upsample(sampler2D sp, float2 uv, float2 res) {
+		float2 ps = 1.0 / res;
+		ps.y *= ReShade::AspectRatio;
+
+		return blur2D(sp, uv, 6, ps * f2Blur_Scale, fBlur_Sigma);
+	}
+
+	float4 PS_MakeHDR(
+		float4 position : SV_POSITION,
+		float2 uv       : TEXCOORD
+	) : SV_TARGET {
+		float3 color = tex2D(sBackBuffer, uv).rgb;
+		//float3 color = blur2D(sBackBuffer, uv, 4, f2Blur_Scale, fBlur_Sigma);
+		#if !ARCANE_BLOOM_NO_INV_TONEMAP
+		#if ARCANE_BLOOM_INV_TONEMAP_PRESERVE_COLORS
+		color = inv_reinhard_preserve_colors(color, 1.0 / fMaxBrightness);
+		#else
+		color = inv_reinhard(color, 1.0 / fMaxBrightness);
+		#endif
+		#else
+		color = pow(color, fBloom_Threshold);
+		#endif
+		return float4(color, 1.0);
+	}
+
+	/*float4 PS_DownSample(
+		float4 position : SV_POSITION,
+		float2 uv       : TEXCOORD
+	) : SV_TARGET {
+		float2 ps = 1.0 / 1024.0;
+		ps.y *= ReShade::AspectRatio;
+
+		// We'll use color.a as accumulation.
+		float4 color = 0.0;
+
+		for (int x = -3; x <= 3; ++x) {
+			for (int y = -3; y <= 3; ++y) {
+				float2 offset = float2(x, y);
+				color += float4(tex2D(sHDR, uv + ps * f2Blur_Scale * offset).rgb, 1.0) * gaussian2D(offset, fBlur_Sigma);
+			}
+		}
+
+		color.rgb /= color.a;
+		return float4(color.rgb, 1.0);
+	}*/
+
+	#define DEF_SHADER(TEX, RES) \
+	float4 PS_Blur##RES( \
+		float4 position : SV_POSITION, \
+		float2 uv       : TEXCOORD \
+	) : SV_TARGET { \
+		return float4(downsample(TEX, uv, RES), 1.0); \
+	}
+
+	DEF_SHADER(sHDR, 1024)
+	DEF_SHADER(s1024, 512)
+	DEF_SHADER(s512, 256)
+	DEF_SHADER(s256, 128)
+	DEF_SHADER(s128, 64)
+	DEF_SHADER(s64, 32)
+	DEF_SHADER(s32, 16)
+	DEF_SHADER(s16, 8)
+
+	#undef DEF_SHADER
+
+	float4 PS_Adapt(
+		float4 position : SV_POSITION,
+		float2 uv       : TEXCOORD
+	) : SV_TARGET {
+		float3 color = tex2Dlod(sHDR, float4(0.5, 0.5, 0.0, 11.0 - fAdapt_Precision)).rgb;
+		float luma = get_luma_linear(color);
+		luma *= fAdapt_Sensitivity;
+		luma = bAdapt_Clamp ? clamp(luma, f2Adapt_MinMax.x, f2Adapt_MinMax.y) : luma;
+		//luma = max(luma, 1.0 / fMaxBrightness);
+
+		float last = tex2Dfetch(sLast, (int4)0).x; //tex2D(sLast, uv).x;
+		luma = lerp(last, luma, saturate((fFrameTime * 0.001) / max(fAdapt_Delay, 0.001)));
+
+		return luma;
+	}
+
+	float4 PS_Last(
+		float4 position : SV_POSITION,
+		float2 uv       : TEXCOORD
+	) : SV_TARGET {
+		return tex2D(sAdapt, 0);
+	}
+
+	float4 PS_Blend(
+		float4 position : SV_POSITION,
+		float2 uv       : TEXCOORD
+	) : SV_TARGET {
+		float3 color = tex2D(sBackBuffer_Point, uv).rgb;
+		float3 bloom = tex2D(s1024, uv).rgb
+		             + tex2D(s512, uv).rgb
+					 + tex2D(s256, uv).rgb
+					 + tex2D(s128, uv).rgb
+					 + tex2D(s64, uv).rgb
+					 + tex2D(s32, uv).rgb
+					 + tex2D(s16, uv).rgb
+					 + tex2D(s8, uv).rgb
+		; bloom /= 8;
+
+		float max_c = 1.0 / fMaxBrightness;
+
+		#if !ARCANE_BLOOM_NO_INV_TONEMAP
+		color = inv_reinhard(color, max_c);
+		#endif
+
+		#if ARCANE_BLOOM_REDUCE_INTENSITY
+		color += bloom * fBloom_Intensity / fMaxBrightness;
+		#else
+		color += bloom * fBloom_Intensity;
+		#endif
+		
+		float exposure = fExposure / tex2Dfetch(sAdapt, (int4)0).x; //tex2D(sAdapt, 0).x;
+		color *= exposure;
+
+		color = reinhard(color);
+		return float4(color, 1.0);
+	}
+
+	technique ArcaneBloom {
+		pass MakeHDR {
+			VertexShader = PostProcessVS;
+			PixelShader  = PS_MakeHDR;
+			RenderTarget = tArcaneBloom_HDR;
+		}
+		pass Adapt {
+			VertexShader = PostProcessVS;
+			PixelShader  = PS_Adapt;
+			RenderTarget = tArcaneBloom_Adapt;
+		}
+		pass Last {
+			VertexShader = PostProcessVS;
+			PixelShader  = PS_Last;
+			RenderTarget = tArcaneBloom_Last;
+		}
+		/*pass DownSample {
+			VertexShader = PostProcessVS;
+			PixelShader  = PS_DownSample;
+			RenderTarget = tArcaneBloom_1024;
+		}*/
+
+		#define DEF_PASS(RES) \
+		pass Blur##RES { \
+			VertexShader = PostProcessVS; \
+			PixelShader  = PS_Blur##RES; \
+			RenderTarget = tArcaneBloom_##RES; \
+		}
+
+		DEF_PASS(1024)
+		DEF_PASS(512)
+		DEF_PASS(256)
+		DEF_PASS(128)
+		DEF_PASS(64)
+		DEF_PASS(32)
+		DEF_PASS(16)
+		DEF_PASS(8)
+
+		#undef DEF_PASS
+		pass Blend {
+			VertexShader    = PostProcessVS;
+			PixelShader     = PS_Blend;
+			SRGBWriteEnable = true;
+		}
+	}
+}

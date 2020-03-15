@@ -1,0 +1,104 @@
+#pragma once
+
+#include "ReShade.fxh"
+
+namespace ArcaneBloom {
+	texture2D tArcaneBloom_HDR {
+		Width     = 1024;
+		Height    = 1024;
+		Format    = RGBA16F;
+		MipLevels = 11;
+	};
+	sampler2D sHDR {
+		Texture   = tArcaneBloom_HDR;
+		MinFilter = LINEAR;
+		MagFilter = LINEAR;
+		MipFilter = LINEAR;
+	};
+
+	texture2D tArcaneBloom_Adapt {
+		Format = R16F;
+	};
+	sampler2D sAdapt {
+		Texture = tArcaneBloom_Adapt;
+		MinFilter = POINT;
+		MagFilter = POINT;
+		MipFilter = POINT;
+	};
+
+	texture2D tArcaneBloom_Last {
+		Format = R16F;
+	};
+	sampler2D sLast {
+		Texture = tArcaneBloom_Last;
+		MinFilter = POINT;
+		MagFilter = POINT;
+		MipFilter = POINT;
+	};
+
+	#define DEF_TEX(RES) \
+	texture2D tArcaneBloom_##RES { \
+		Width  = RES; \
+		Height = RES; \
+		Format = RGBA16F; \
+	}; \
+	sampler2D s##RES { \
+		Texture   = tArcaneBloom_##RES; \
+		MinFilter = LINEAR; \
+		MagFilter = LINEAR; \
+		MipFilter = LINEAR; \
+	};
+
+	DEF_TEX(1024)
+	DEF_TEX(512)
+	DEF_TEX(256)
+	DEF_TEX(128)
+	DEF_TEX(64)
+	DEF_TEX(32)
+	DEF_TEX(16)
+	DEF_TEX(8)
+
+	#undef DEF_TEX
+
+	float3 reinhard(float3 c) {
+		return c / (1.0 + c);
+	}
+
+	float3 inv_reinhard(float3 c, float max_c) {
+		return (c / max(1.0 - c, max_c));
+	}
+
+	float3 inv_reinhard_preserve_colors(float3 c, float max_c) {
+		float lum = max(c.r, max(c.g, c.b));
+		return c * (lum / max(1.0 - lum, max_c));
+	}
+
+	float get_luma_linear(float3 c) {
+		return dot(c, float3(0.2126, 0.7152, 0.0722));
+	}
+
+	float gaussian1D(float x, float sigma) {
+		return (1.0 / sqrt(2.0 * 3.1415 * (sigma * sigma))) * exp(-((x * x) / (2.0 * (sigma * sigma))));
+	}
+
+	float gaussian2D(float2 i, float sigma) {
+		return (1.0 / (2.0 * 3.1415 * (sigma * sigma))) * exp(-(((i.x * i.x) + (i.y * i.y)) / (2.0 * (sigma * sigma))));
+	}
+
+	float3 blur2D(sampler2D sp, float2 uv, int2 samples, float2 ps, float sigma) {
+		// We'll use color.a for accumulation.
+		float4 color = 0.0;
+
+		//[unroll]
+		for (int x = -samples.x / 2; x <= samples.x / 2; ++x) {
+			//[unroll]
+			for (int y = -samples.y / 2; y <= samples.y / 2; ++y) {
+				float2 offset = float2(x, y);
+				color += float4(tex2Dlod(sp, float4(uv + ps * offset, 0, 0)).rgb, 1.0) * gaussian2D(offset, sigma);
+			}
+		}
+
+		color.rgb /= color.a;
+		return color.rgb;
+	}
+}

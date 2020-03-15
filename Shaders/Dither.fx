@@ -92,7 +92,7 @@ float2 fmod(float2 a, float2 b) {
 float dither(float x, float2 uv) {
     #if (__RENDERER__ & 0x10000) // If OpenGL
     
-    float2 index = fmod(uv * ReShade::ScreenSize, 8.0);
+    float2 index = (uv * ReShade::ScreenSize) % 8.0;
     float limit  = (float(get_bayer(int2(index)) + 1) / 64.0) * step(index.x, 8.0);
     
     #else // DirectX

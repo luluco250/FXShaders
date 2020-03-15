@@ -31,9 +31,11 @@ uniform int Mode
 		"\n"
 		"  Scale:\n"
 		"    Zoom channels from the center.\n"
+		"  Lens Distortion:\n"
+		"    Applies lens distortion to the channels.\n"
 		"\n"
 		"Default: Scale";
-	ui_items = "Translate\0Scale\0";
+	ui_items = "Translate\0Scale\0Lens Distortion\0";
 > = 1;
 
 uniform float3 Ratio
@@ -64,11 +66,56 @@ uniform float Multiplier
 
 //#endregion
 
+//#region Textures
+
+sampler BackBuffer
+{
+	Texture = ReShade::BackBufferTex;
+	AddressU = BORDER;
+	AddressV = BORDER;
+};
+
+//#endregion
+
 //#region Functions
 
 float2 scale_uv(float2 uv, float2 scale, float2 center)
 {
 	return (uv - center) * scale + center;
+}
+
+float2 lens_distortion(float2 uv, float amount)
+{
+	// 0.0 <-> 1.0 --> -1.0 <-> 1.0
+	uv = uv * 2.0 - 1.0;
+
+	//uv = lerp(uv, 0.0, sqrt(uv) * amount);
+	//uv = scale_uv(uv, 1.0 / amount, 0.0);
+
+	//uv = pow(abs(uv), 0.9) * sign(uv);
+
+	//uv = lerp(uv, abs(uv) * abs(uv.yx) * sign(uv), 0.25);
+
+	//uv += distance(abs(uv), 0.2) * sign(uv);
+
+	//uv *= lerp(1.0, distance(uv, 0.0), 0.5);
+
+	/*float theta = atan2(uv.y, uv.x);
+	float radius = length(uv);
+	radius = pow(abs(radius), amount);
+
+	float s, c;
+	sincos(theta, s, c);
+
+	uv.x = radius * cos(theta);
+	uv.y = radius * sin(theta);*/
+
+	uv *= smoothstep(6.0, 3.0, distance(uv, 0.0));
+
+	// -1.0 <-> 1.0 --> 0.0 <-> 1.0
+	uv = uv * 0.5 + 0.5;
+
+	return uv;
 }
 
 //#endregion
@@ -101,6 +148,13 @@ float4 MainPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 			uv_r = scale_uv(uv_r, ratio.r, 0.5);
 			uv_g = scale_uv(uv_g, ratio.g, 0.5);
 			uv_b = scale_uv(uv_b, ratio.b, 0.5);
+			break;
+		case 2: // Lens Distortion
+			ratio = Ratio * Multiplier;
+
+			uv_r = lens_distortion(uv_r, ratio.r);
+			uv_g = lens_distortion(uv_g, ratio.g);
+			uv_b = lens_distortion(uv_b, ratio.b);
 			break;
 	}
 

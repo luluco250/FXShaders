@@ -1,0 +1,518 @@
+#include "ReShade.fxh"
+
+//Macros//////////////////////////////////////////////////////////////////////////////////////////////
+
+#ifndef MAGIC_BLOOM_2_DEBUG
+#define MAGIC_BLOOM_2_DEBUG 0
+#endif
+
+#ifndef MAGIC_BLOOM_2_BLUR_SAMPLES
+#define MAGIC_BLOOM_2_BLUR_SAMPLES 21
+#endif
+
+#ifndef MAGIC_BLOOM_2_NO_ADAPT
+#define MAGIC_BLOOM_2_NO_ADAPT 0
+#endif
+
+#ifndef MAGIC_BLOOM_2_ADAPT_NO_DELAY
+#define MAGIC_BLOOM_2_ADAPT_NO_DELAY 0
+#endif
+
+#ifndef MAGIC_BLOOM_2_NO_DIRT
+#define MAGIC_BLOOM_2_NO_DIRT 0
+#endif
+
+#ifndef MAGIC_BLOOM_2_NO_THRESHOLD
+#define MAGIC_BLOOM_2_NO_THRESHOLD 0
+#endif
+
+#define NONE 0
+#define CUSTOM 1
+#define SRGB 2
+
+#ifndef MAGIC_BLOOM_2_CURVE
+#define MAGIC_BLOOM_2_CURVE SRGB
+#endif
+
+#ifndef MAGIC_BLOOM_2_MINECRAFT_FIX
+#define MAGIC_BLOOM_2_MINECRAFT_FIX 0
+#endif
+
+#define _tex2D(sp, uv) tex2Dlod(sp, float4(uv, 0.0, 0.0))
+#define pow2(x) (x * x)
+
+//Constants///////////////////////////////////////////////////////////////////////////////////////////
+
+static const float pi = 3.1415926535897932384626433832795;
+static const float2 pad = ReShade::PixelSize * 25.0;
+#if BUFFER_WIDTH > BUFFER_HEIGHT
+static const int max_mip = int(log(BUFFER_WIDTH) / log(2)) + 1;
+#else
+static const int max_mip = int(log(BUFFER_HEIGHT) / log(2)) + 1;
+#endif
+static const int max_steps = 8;
+static const int downscale = 2;
+
+//Uniforms////////////////////////////////////////////////////////////////////////////////////////////
+
+uniform float fBloom_Intensity <
+	ui_label = "Bloom Intensity";
+	ui_type  = "drag";
+	ui_min   = 0.0;
+	ui_max   = 1.0;
+	ui_step  = 0.001;
+> = 1.0;
+
+#if !MAGIC_BLOOM_2_NO_THRESHOLD
+uniform float fBloom_Threshold <
+	ui_label = "Bloom Threshold";
+	ui_type  = "drag";
+	ui_min   = 1.0;
+	ui_max   = 10.0;
+	ui_step  = 0.001;
+> = 1.0;
+#endif
+
+#if MAGIC_BLOOM_2_CURVE == CUSTOM
+uniform float fBloom_Curve <
+	ui_label = "Bloom Curve";
+	ui_type  = "drag";
+	ui_min   = 1.0;
+	ui_max   = 10.0;
+	ui_step = 0.001;
+> = 2.2;
+#endif
+
+#if !MAGIC_BLOOM_2_NO_DIRT
+uniform float fDirt_Intensity <
+	ui_label = "Dirt Intensity";
+	ui_type  = "drag";
+	ui_min   = 0.0;
+	ui_max   = 3.0;
+	ui_step  = 0.001;
+> = 0.0;
+#endif
+
+#if !MAGIC_BLOOM_2_NO_ADAPT
+uniform float fAdapt_Exposure <
+	ui_label = "Adaptation Exposure";
+	ui_type  = "drag";
+	ui_min   = 0.001;
+	ui_max   = 10.0;
+	ui_step  = 0.001;
+> = 1.0;
+
+#if !MAGIC_BLOOM_2_ADAPT_NO_DELAY
+uniform float fAdapt_Delay <
+	ui_label = "Adaptation Delay (Seconds)";
+	ui_type  = "drag";
+	ui_min   = 0.001;
+	ui_max   = 20.0;
+	ui_step  = 0.001;
+> = 1.0;
+#endif
+
+uniform float fAdapt_Sensitivity <
+	ui_label = "Adaptation Sensitivity";
+	ui_type  = "drag";
+	ui_min   = 0.0;
+	ui_max   = 10.0;
+	ui_step  = 0.001;
+> = 1.0;
+
+uniform bool bAdapt_DoLimit <
+	ui_label = "Limit Adaptation";
+> = true;
+
+uniform float2 f2Adapt_MinMax <
+	ui_label = "Adaptation Min/Max Limits";
+	ui_type  = "drag";
+	ui_min   = 0.0;
+	ui_max   = 10.0;
+	ui_step  = 0.001;
+> = float2(0.0, 1.0);
+
+uniform float fAdapt_Precision <
+	ui_label = "Adaptation Precision";
+	ui_type  = "drag";
+	ui_min   = 0;
+	ui_max   = max_mip;
+	ui_step  = 0.01;
+> = 0;
+
+uniform int iAdapt_Mode <
+	ui_label = "Adaptation Mode";
+	ui_type  = "combo";
+	ui_items = "Disabled\0Adapt Final Image\0Adapt Only Bloom\0";
+> = 1;
+#endif
+
+uniform float fMaxBrightness <
+	ui_label = "Max Brightness";
+	ui_type  = "drag";
+	ui_min   = 1.0;
+	ui_max   = 1000.0;
+	ui_step  = 1.0;
+> = 10.0;
+
+uniform float fBlur_Sigma <
+	ui_label = "Blur Sigma";
+	ui_type  = "drag";
+	ui_min   = 0.0;
+	ui_max   = 100.0;
+	ui_step  = 0.001;
+> = 4.0;
+
+uniform int iBlur_Steps <
+	ui_label = "Blur Steps";
+	ui_type  = "drag";
+	ui_min   = 1;
+	ui_max   = max_steps;
+	ui_step  = 0.1;
+> = max_steps;
+
+#if MAGIC_BLOOM_2_DEBUG
+uniform int iDebug <
+	ui_label = "Debug Options";
+	ui_type  = "combo";
+	ui_items = "None\0Show Bloom Texture\0Show Unscaled Textures\0";
+> = 0;
+#endif
+
+uniform float fDeltaTime <source="frametime";>;
+
+//Textures////////////////////////////////////////////////////////////////////////////////////////////
+
+#if !MAGIC_BLOOM_2_NO_DIRT
+texture2D tMagicBloom2_Dirt <source="MagicBloom_Dirt.png";> {
+	Width  = BUFFER_WIDTH;
+	Height = BUFFER_HEIGHT;
+};
+sampler2D sMagicBloom2_Dirt {
+	Texture = tMagicBloom2_Dirt;
+};
+#endif
+
+sampler2D sBackBuffer {
+	Texture = ReShade::BackBufferTex;
+	#if MAGIC_BLOOM_2_CURVE == SRGB
+		SRGBTexture = true;
+	#endif
+};
+
+texture2D tMagicBloom2_A {
+	Width = BUFFER_WIDTH / downscale;
+	Height = BUFFER_HEIGHT / downscale;
+	Format = RGBA16F;
+	#if !MAGIC_BLOOM_2_NO_ADAPT
+	MipLevels = max_mip;
+	#endif
+};
+sampler2D sMagicBloom2_A {
+	Texture = tMagicBloom2_A;
+};
+
+texture2D tMagicBloom2_B {
+	Width = BUFFER_WIDTH / downscale;
+	Height = BUFFER_HEIGHT / downscale;
+	Format = RGBA16F;
+};
+sampler2D sMagicBloom2_B {
+	Texture = tMagicBloom2_B;
+};
+
+#if !MAGIC_BLOOM_2_NO_ADAPT
+texture2D tMagicBloom2_Adapt {
+	Format = R16F;
+};
+sampler2D sMagicBloom2_Adapt {
+	Texture = tMagicBloom2_Adapt;
+};
+
+#if !MAGIC_BLOOM_2_ADAPT_NO_DELAY
+texture2D tMagicBloom2_LastAdapt {
+	Format = R16F;
+};
+sampler2D sMagicBloom2_LastAdapt {
+	Texture = tMagicBloom2_LastAdapt;
+};
+#endif
+
+#endif
+
+//Functions///////////////////////////////////////////////////////////////////////////////////////////
+
+float2 get_offset(int i) {
+	static const float2 offset[max_steps] = {
+		float2(0.0, 0.0),
+		float2(0.7, 0.0),
+		float2(0.6, 0.35),
+		float2(0.725, 0.35),
+		float2(0.55, 0.475),
+		float2(0.58125, 0.475),
+		float2(0.6, 0.475),
+		float2(0.6125, 0.475)
+	};
+	return offset[i];
+}
+
+float3 i_reinhard(float3 col) {
+	return (col / max(1.0 - col, 1.0 / fMaxBrightness));
+}
+
+float3 t_reinhard(float3 col) {
+	return col / (1.0 + col);
+}
+
+float get_luma_linear(float3 col) {
+	return dot(col, float3(0.2126, 0.7152, 0.0722));
+}
+
+float gaussian(float i) {
+	return (1.0 / sqrt(2.0 * pi * pow2(fBlur_Sigma))) * exp(-(pow2(i) / (2.0 * pow2(fBlur_Sigma))));
+}
+
+float2 scale_uv(float2 uv, float2 scale, float2 center) {
+	return (uv - center) * scale + center;
+}
+
+bool within(float2 uv, float4 bounds) {
+	return uv.x >= bounds.x && uv.x <= bounds.y && uv.y >= bounds.z && uv.y <= bounds.w;
+}
+
+float3 blur(sampler2D sp, float2 uv, float2 scale) {
+	const float2 ps = ReShade::PixelSize * scale;
+
+	float3 color = 0.0;
+	float accum = 0.0;
+	float offset, weight;
+
+	[unroll]
+	for (int i = -MAGIC_BLOOM_2_BLUR_SAMPLES / 2; i <= MAGIC_BLOOM_2_BLUR_SAMPLES / 2; ++i) {
+		offset = i;
+		weight = gaussian(offset);
+
+		color += _tex2D(sp, uv + ps * offset).rgb * weight;
+		accum += weight;
+	}
+
+	color /= accum;
+	return color;
+}
+
+//Shaders/////////////////////////////////////////////////////////////////////////////////////////////
+
+float4 PS_MakeHDR(
+	float4 position : SV_POSITION,
+	float2 uv       : TEXCOORD
+) : SV_TARGET {
+	float3 color = tex2D(sBackBuffer, uv).rgb;
+
+	#if MAGIC_BLOOM_2_CURVE == CUSTOM
+	color = pow(color, fBloom_Curve);
+	#endif
+
+	#if !MAGIC_BLOOM_2_NO_THRESHOLD
+	color = pow(color, fBloom_Threshold);
+	#endif
+
+	color = i_reinhard(color);
+	return float4(color, 1.0);
+}
+
+#if !MAGIC_BLOOM_2_NO_ADAPT
+float4 PS_CalcAdapt(
+	float4 position : SV_POSITION,
+	float2 uv       : TEXCOORD
+) : SV_TARGET {
+	float3 color = tex2Dlod(sMagicBloom2_A, float4(0.5, 0.5, 0.0, max_mip - fAdapt_Precision)).rgb;
+
+	float adapt = get_luma_linear(color);
+	adapt *= fAdapt_Sensitivity;
+	adapt = (bAdapt_DoLimit) ? clamp(adapt, f2Adapt_MinMax.x, f2Adapt_MinMax.y) : adapt;
+
+	#if !MAGIC_BLOOM_2_ADAPT_NO_DELAY
+	float last = tex2D(sMagicBloom2_LastAdapt, uv).x;
+	adapt = lerp(last, adapt, (fDeltaTime * 0.001) / fAdapt_Delay);
+	#endif
+
+	return float4(adapt, 0.0, 0.0, 0.0);
+}
+
+#if !MAGIC_BLOOM_2_ADAPT_NO_DELAY
+float4 PS_SaveAdapt(
+	float4 position : SV_POSITION,
+	float2 uv       : TEXCOORD
+) : SV_TARGET {
+	return tex2D(sMagicBloom2_Adapt, uv);
+}
+#endif
+#endif
+
+float4 PS_Split(
+	float4 position : SV_POSITION,
+	float2 uv       : TEXCOORD
+) : SV_TARGET {
+	float3 color = 0.0;
+	float lod;
+	float2 scaled_uv;
+
+	[unroll]
+	for (int i = 0; i < iBlur_Steps; ++i) {
+		lod = pow(2, i + 1);
+		scaled_uv = scale_uv(uv, lod, get_offset(i));
+
+		if (within(scaled_uv, float4(-pad.x, 1.0 + pad.x, -pad.y, 1.0 + pad.y)))
+			color += tex2Dlod(sMagicBloom2_A, float4(scaled_uv, 0.0, i)).rgb;
+	}
+
+	return float4(color, 1.0);
+}
+
+float4 PS_BlurX(
+	float4 position : SV_POSITION,
+	float2 uv       : TEXCOORD
+) : SV_TARGET {
+	float3 color = blur(sMagicBloom2_B, uv, float2(downscale, 0));
+	return float4(color, 1.0);
+}
+
+float4 PS_BlurY(
+	float4 position : SV_POSITION,
+	float2 uv       : TEXCOORD
+) : SV_TARGET {
+	float3 color = blur(sMagicBloom2_A, uv, float2(0, downscale));
+	return float4(color, 1.0);
+}
+
+float4 PS_Blend(
+	float4 position : SV_POSITION,
+	float2 uv       : TEXCOORD
+) : SV_TARGET {
+	#if MAGIC_BLOOM_2_DEBUG
+	if (iDebug == 2) {
+		float3 color = tex2D(sMagicBloom2_B, uv).rgb;
+
+		#if MAGIC_BLOOM_2_CURVE == CUSTOM
+		color = pow(color, 1.0 / fBloom_Curve);
+		#endif
+
+		return float4(color, 1.0);
+	}
+	#endif
+
+	float3 bloom = 0.0;
+	float lod;
+	float2 scaled_uv;
+
+	[unroll]
+	for (int i = 0; i < iBlur_Steps; ++i) {
+		lod = pow(2, i + 1);
+		scaled_uv = scale_uv(uv, 1.0 / lod, get_offset(i));
+
+		bloom += tex2D(sMagicBloom2_B, scaled_uv).rgb;
+	}
+	bloom /= iBlur_Steps;
+	bloom *= fBloom_Intensity;
+
+	#if MAGIC_BLOOM_2_DEBUG
+	if (iDebug == 1) {
+		#if MAGIC_BLOOM_2_CURVE == CUSTOM
+		bloom = pow(bloom, 1.0 / fBloom_Curve);
+		#endif
+
+		return float4(bloom, 1.0);
+	}
+	#endif
+
+	#if !MAGIC_BLOOM_2_NO_ADAPT
+	float adapt = tex2D(sMagicBloom2_Adapt, uv).x;
+	float exposure = fAdapt_Exposure / max(adapt, 1.0 / fMaxBrightness);
+	bloom *= (iAdapt_Mode == 2) ? exposure : 1.0;
+	#endif
+
+	#if !MAGIC_BLOOM_2_NO_DIRT
+	float bloom_lum = max(bloom.r, max(bloom.g, bloom.b));
+	float3 dirt = tex2D(sMagicBloom2_Dirt, uv).rgb;
+	bloom += dirt * bloom * fDirt_Intensity;
+	#endif
+
+	float3 color = tex2D(sBackBuffer, uv).rgb;
+
+	#if MAGIC_BLOOM_2_CURVE == CUSTOM
+	color = pow(color, fBloom_Curve);
+	#endif
+
+	color = i_reinhard(color);
+	color += bloom;
+
+	#if !MAGIC_BLOOM_2_NO_ADAPT
+	color *= (iAdapt_Mode == 1) ? exposure : 1.0;
+	#endif
+
+	color = t_reinhard(color);
+
+	#if MAGIC_BLOOM_2_DEBUG
+	color = (iDebug == 1) ? bloom : color;
+	#endif
+
+	#if MAGIC_BLOOM_2_CURVE == CUSTOM
+	color = pow(color, 1.0 / fBloom_Curve);
+	#endif
+
+	return float4(color, 1.0);
+}
+
+float4 PS_Test(
+	float4 position : SV_POSITION,
+	float2 uv       : TEXCOORD
+) : SV_TARGET {
+	float3 color = blur(sBackBuffer, uv, float2(1.0, 0.0));
+	return float4(color, 1.0);
+}
+
+//Technique///////////////////////////////////////////////////////////////////////////////////////////
+
+technique MagicBloom2 {
+	pass MakeHDR {
+		VertexShader = PostProcessVS;
+		PixelShader  = PS_MakeHDR;
+		RenderTarget = tMagicBloom2_A;
+	}
+	#if !MAGIC_BLOOM_2_NO_ADAPT
+	pass CalcAdapt {
+		VertexShader = PostProcessVS;
+		PixelShader  = PS_CalcAdapt;
+		RenderTarget = tMagicBloom2_Adapt;
+	}
+	#if !MAGIC_BLOOM_2_ADAPT_NO_DELAY
+	pass SaveAdapt {
+		VertexShader = PostProcessVS;
+		PixelShader  = PS_SaveAdapt;
+		RenderTarget = tMagicBloom2_LastAdapt;
+	}
+	#endif
+	#endif
+	pass Split {
+		VertexShader = PostProcessVS;
+		PixelShader  = PS_Split;
+		RenderTarget = tMagicBloom2_B;
+	}
+	pass BlurX {
+		VertexShader = PostProcessVS;
+		PixelShader  = PS_BlurX;
+		RenderTarget = tMagicBloom2_A;
+	}
+	pass BlurY {
+		VertexShader = PostProcessVS;
+		PixelShader  = PS_BlurY;
+		RenderTarget = tMagicBloom2_B;
+	}
+	pass Blend {
+		VertexShader = PostProcessVS;
+		PixelShader  = PS_Blend;
+		#if MAGIC_BLOOM_2_CURVE == SRGB
+		SRGBWriteEnable = true;
+		#endif
+	}
+}

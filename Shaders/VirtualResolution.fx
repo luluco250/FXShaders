@@ -30,7 +30,7 @@
 
 //#region Uniforms
 
-uniform uint iScaleMode <
+uniform uint ScaleMode <
 	ui_label = "Scale Mode";
 	ui_type = "combo";
 	ui_items = "None\0Crop\0Stretch\0";
@@ -38,7 +38,7 @@ uniform uint iScaleMode <
 
 #if VIRTUAL_RESOLUTION_DYNAMIC
 
-uniform float fResolutionX <
+uniform float ResolutionX <
 	ui_label = "Virtual Resolution Width";
 	ui_type = "drag";
 	ui_min = 1.0;
@@ -46,7 +46,7 @@ uniform float fResolutionX <
 	ui_step = 1.0;
 > = BUFFER_WIDTH;
 
-uniform float fResolutionY <
+uniform float ResolutionY <
 	ui_label = "Virtual Resolution Height";
 	ui_type = "drag";
 	ui_min = 1.0;
@@ -56,18 +56,19 @@ uniform float fResolutionY <
 
 #else
 
-static const float fResolutionX = VIRTUAL_RESOLUTION_WIDTH;
-static const float fResolutionY = VIRTUAL_RESOLUTION_HEIGHT;
+static const float ResolutionX = VIRTUAL_RESOLUTION_WIDTH;
+static const float ResolutionY = VIRTUAL_RESOLUTION_HEIGHT;
 
 #endif
 
-#define f2Resolution float2(fResolutionX, fResolutionY)
+#define Resolution float2(ResolutionX, ResolutionY)
 
 //#endregion
 
 //#region Textures
 
-sampler sBackBuffer_Down {
+sampler DownSample
+{
 	Texture = ReShade::BackBufferTex;
 	MinFilter = VIRTUAL_RESOLUTION_DOWNFILTER;
 	MagFilter = VIRTUAL_RESOLUTION_DOWNFILTER;
@@ -77,7 +78,8 @@ sampler sBackBuffer_Down {
 
 #if VIRTUAL_RESOLUTION_DYNAMIC
 
-sampler sBackBuffer_Up {
+sampler UpSample
+{
 	Texture = ReShade::BackBufferTex;
 	MinFilter = VIRTUAL_RESOLUTION_UPFILTER;
 	MagFilter = VIRTUAL_RESOLUTION_UPFILTER;
@@ -87,12 +89,14 @@ sampler sBackBuffer_Up {
 
 #else
 
-texture tVirtualResolution_DownSampled {
+texture VirtualResolution_DownSampled
+{
 	Width = VIRTUAL_RESOLUTION_WIDTH;
 	Height = VIRTUAL_RESOLUTION_HEIGHT;
 };
-sampler sDownSampled {
-	Texture = tVirtualResolution_DownSampled;
+sampler UpSample
+{
+	Texture = VirtualResolution_DownSampled;
 	MinFilter = VIRTUAL_RESOLUTION_UPFILTER;
 	MagFilter = VIRTUAL_RESOLUTION_UPFILTER;
 	AddressU = BORDER;
@@ -105,97 +109,114 @@ sampler sDownSampled {
 
 //#region Functions
 
-float2 scaleUV(float2 uv, float2 scale) {
-	return (uv - 0.5) * scale + 0.5;
+float get_aspect_ratio_scale(out float x_or_y)
+{
+	float ar_real = ReShade::AspectRatio;
+	float ar_virtual = ResolutionX / ResolutionY;
+	
+	x_or_y = step(ar_real, ar_virtual);
+	return lerp(ar_virtual / ar_real, ar_real / ar_virtual, x_or_y);
 }
 
-float ruleOfThree(float a, float b, float c) {
-	return (b * c) / a;
+float2 scale_uv(float2 uv, float2 scale, float2 center)
+{
+	return (uv - center) * scale + center;
+}
+float2 scale_uv(float2 uv, float2 scale)
+{
+	return scale_uv(uv, scale, 0.5);
 }
 
-bool Crop(float2 uv) {
-	static const float ar_real = ReShade::AspectRatio;
-	float ar_virtual = fResolutionX / fResolutionY;
+float get_crop(float2 uv, float ar_scale, float x_or_y)
+{
+	float crop = ar_scale;
+	crop = (1.0 - crop) * 0.5;
 
-	//crop horizontally or vertically? (true = x, false = y)
-	bool x_or_y = ar_real > ar_virtual;
-	float ar_result = x_or_y ? (ar_virtual / ar_real) : 
-							   (ar_real / ar_virtual);
-	
-	float mask = (1.0 - (ar_result)) * 0.5;
-	return x_or_y ? (uv.x > mask && uv.x < 1.0 - mask) : 
-					(uv.y > mask && uv.y < 1.0 - mask);
+	float pos = lerp(uv.x, uv.y, x_or_y);
+
+	return step(crop, pos) * step(pos, 1.0 - crop);
 }
 
-float2 Stretch(float2 uv) {
-	static const float ar_real = ReShade::AspectRatio;
-	float ar_virtual = fResolutionX / fResolutionY;
-	
-	bool x_or_y = ar_real > ar_virtual;
-	float ar_result = x_or_y
-		? (ar_virtual / ar_real)
-		: (ar_real / ar_virtual);
-	
-	float scale = 1.0 / ar_result;
-	return x_or_y
-		? scaleUV(uv, float2(scale, 1.0))
-		: scaleUV(uv, float2(1.0, scale));
+float2 get_stretch(float2 uv, float ar_scale, float x_or_y)
+{
+	float2 scale = float2(ar_scale, 1.0);
+	scale = lerp(scale, scale.yx, x_or_y);
+
+	return scale_uv(uv, 1.0 / scale);
 }
 
 //#endregion
 
 //#region Shaders
 
-float4 PS_DownSample(float4 pos : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET {
+float4 PS_DownSample(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
+{
 	#if VIRTUAL_RESOLUTION_DYNAMIC
 
-	float2 scale = f2Resolution * ReShade::PixelSize;
-	float3 col = tex2D(sBackBuffer_Down, scaleUV(uv, 1.0 / scale)).rgb;
-	return float4(col, 1.0);
-
-	#else
-
-	return tex2D(sBackBuffer_Down, uv);
+	float2 scale = Resolution * ReShade::PixelSize;
+	uv = scale_uv(uv, 1.0 / scale);
 
 	#endif
+
+	return tex2D(DownSample, uv);
 }
 
-float4 PS_UpSample(float4 pos : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET {
+float4 PS_UpSample(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
+{
+	float2 uv_original = uv;
+
 	#if VIRTUAL_RESOLUTION_DYNAMIC
 
-	float2 scale = f2Resolution * ReShade::PixelSize;
-	uv = scaleUV(uv, scale);
-	uv = iScaleMode == 2 ? Stretch(uv) : uv;
-
-	float3 col = tex2D(sBackBuffer_Up, uv).rgb;
-
-	col *= iScaleMode == 1 ? Crop(uv) : 1.0;
-
-	return float4(col, 1.0);
-
-	#else
-
-	uv = iScaleMode == 2 ? Stretch(uv) : uv;
-	float crop = iScaleMode == 1 ? Crop(uv) : 1.0;
-	return tex2D(sDownSampled, uv) * crop;
+	float2 scale = Resolution * ReShade::PixelSize;
+	uv = scale_uv(uv, scale);
 
 	#endif
+
+	float4 color;
+
+	if (ScaleMode != 0)
+	{
+		float x_or_y = 0.0;
+		float ar = get_aspect_ratio_scale(x_or_y);
+		float visible = 1.0;
+
+		switch (ScaleMode)
+		{
+			case 1:
+				visible = get_crop(uv_original, ar, x_or_y);
+				break;
+			case 2:
+				uv = get_stretch(uv, ar, x_or_y);
+				break;
+		}
+
+		color = tex2D(UpSample, uv) * visible;
+	}
+	else
+	{
+		color = tex2D(UpSample, uv);
+	}
+
+	return color;
 }
 
 //#endregion
 
 //#region Technique
 
-technique VirtualResolution {
-	pass DownSample {
+technique VirtualResolution
+{
+	pass DownSample
+	{
 		VertexShader = PostProcessVS;
 		PixelShader = PS_DownSample;
 
 		#if !VIRTUAL_RESOLUTION_DYNAMIC
-		RenderTarget = tVirtualResolution_DownSampled;
+		RenderTarget = VirtualResolution_DownSampled;
 		#endif
 	}
-	pass UpSample {
+	pass UpSample
+	{
 		VertexShader = PostProcessVS;
 		PixelShader = PS_UpSample;
 	}
