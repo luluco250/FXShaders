@@ -123,6 +123,67 @@ static const int AdaptMode_OnlyBloom = 1;
 
 // Bloom
 
+uniform int _Help
+<
+	ui_text =
+		"NeoBloom has many options and may be difficult to setup or may look "
+		"bad at first, but it's designed to be very flexible to adapt to many "
+		"different cases.\n"
+		"Make sure to take a look at the preprocessor definitions at the "
+		"bottom!\n"
+		"For more specific descriptions, move the mouse cursor over the name "
+		"of the option you need help with.\n"
+		"\n"
+		"Here's a general description of the features:\n"
+		"\n"
+		"  Bloom:\n"
+		"    Basic options for controlling the look of bloom itself.\n"
+		"\n"
+		"  Adaptation:\n"
+		"    Used to dynamically increase or reduce the image brightness "
+		"depending on the scene, giving an HDR look.\n"
+		"    Looking at a bright object, like a lamp, would cause the image to "
+		"darken; lookinng at a dark spot, like a cave, would cause the "
+		"image to brighten.\n"
+		"\n"
+		"  Blending:\n"
+		"    Used to control how the different bloom textures are blended, "
+		"each representing a different level-of-detail.\n"
+		"    Can be used to simulate an old mid-2000s bloom, ambient light "
+		"etc.\n"
+		"\n"
+		"  Ghosting:\n"
+		"    Smoothens the bloom between frames, causing a \"motion blur\" or "
+		"\"trails\" effect.\n"
+		"\n"
+		"  Depth:\n"
+		"    Used to increase or decrease the brightness of parts of the image "
+		"depending on depth.\n"
+		"    Can be used for effects like brightening the sky.\n"
+		"    An optional anti-flicker feature is available to help with games "
+		"with depth flickering problems, which can cause bloom to flicker as "
+		"well with the depth feature enabled.\n"
+		"\n"
+		"  HDR:\n"
+		"    Options for controlling the high dynamic range simulation.\n"
+		"    Useful for simulating a more foggy bloom, like an old soap opera, "
+		"a high-contrast sunny look etc.\n"
+		"\n"
+		"  Blur:\n"
+		"    Options for controlling the blurring effect used to generate the "
+		"bloom textures.\n"
+		"    Mostly can be left untouched.\n"
+		"\n"
+		"  Debug:\n"
+		"    Enables testing options, like viewing the bloom texture alone, "
+		"before mixing with the image.\n"
+		;
+	ui_category = "Help";
+	ui_category_closed = true;
+	ui_label = " ";
+	ui_type = "radio";
+>;
+
 uniform float Intensity 
 <
 	__UNIFORM_SLIDER_FLOAT1
@@ -379,7 +440,7 @@ uniform float GhostingAmount
 	ui_tooltip =
 		"Amount of ghosting applied.\n"
 		"\nDefault: 0.0";
-	ui_category = "Last";
+	ui_category = "Ghosting";
 	ui_min = 0.0;
 	ui_max = 0.999;
 > = 0.0;
@@ -433,6 +494,7 @@ uniform float DepthSmoothness
 	ui_tooltip =
 		"Amount of smoothness in the transition between depth ranges.\n"
 		"\nDefault: 1.0";
+	ui_category = "Depth";
 	ui_min = 0.0;
 	ui_max = 1.0;
 	ui_step = 0.001;
@@ -491,6 +553,7 @@ uniform bool NormalizeBrightness
 		"image.\n"
 		"Without it, the bloom may have very harsh bright spots.\n"
 		"\nDefault: On";
+	ui_category = "HDR";
 > = true;
 
 // Blur
