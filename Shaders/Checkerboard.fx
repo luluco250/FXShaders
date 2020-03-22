@@ -35,12 +35,12 @@ uniform float TileSize
 	ui_label = "Size";
 	ui_tooltip =
 		"The size of the checkerboard tiles.\n"
-		"\nDefault: 40";
+		"\nDefault: 20";
 	ui_category = "Tiles";
 	ui_min = 1.0;
 	ui_max = 100.0;
 	ui_step = 1.0;
-> = 40.0;
+> = 20.0;
 
 uniform float4 TileColorA
 <
