@@ -1,11 +1,11 @@
-// #region Includes
+//#region Includes
 
 #include "ReShade.fxh"
 #include "ReShadeUI.fxh"
 
-// #endregion
+//#endregion
 
-// #region Macros
+//#region Macros
 
 #ifndef NEO_BLOOM_TEXTURE_SIZE
 #define NEO_BLOOM_TEXTURE_SIZE 1024
@@ -41,11 +41,15 @@
 #endif
 
 #ifndef NEO_BLOOM_LENS_DIRT_TEXTURE_WIDTH
-#define NEO_BLOOM_LENS_DIRT_TEXTURE_WIDTH BUFFER_WIDTH
+#define NEO_BLOOM_LENS_DIRT_TEXTURE_WIDTH 1280
 #endif
 
 #ifndef NEO_BLOOM_LENS_DIRT_TEXTURE_HEIGHT
-#define NEO_BLOOM_LENS_DIRT_TEXTURE_HEIGHT BUFFER_HEIGHT
+#define NEO_BLOOM_LENS_DIRT_TEXTURE_HEIGHT 720
+#endif
+
+#ifndef NEO_BLOOM_LENS_DIRT_ASPECT_RATIO_CORRECTION
+#define NEO_BLOOM_LENS_DIRT_ASPECT_RATIO_CORRECTION 1
 #endif
 
 #ifndef NEO_BLOOM_GHOSTING
@@ -66,15 +70,31 @@
 
 #define NEO_BLOOM_NEEDS_LAST (NEO_BLOOM_GHOSTING || NEO_BLOOM_DEPTH && NEO_BLOOM_DEPTH_ANTI_FLICKER)
 
-// #endregion
+//#endregion
 
-// #region Constants
+//#region Data Types
 
-static const float PI = 3.14159;
+struct BlendPassParams
+{
+	float4 p : SV_POSITION;
+	float2 uv : TEXCOORD0;
+
+	#if NEO_BLOOM_LENS_DIRT
+
+	float2 lens_uv : TEXCOORD1;
+
+	#endif
+};
+
+//#endregion
+
+//#region Constants
+
+static const float Pi = 3.14159;
 
 // Each bloom means: (x, y, scale, miplevel).
-static const int BLOOM_COUNT = 5;
-static const float4 BLOOMS[] =
+static const int BloomCount = 5;
+static const float4 BloomLevels[] =
 {
 	float4(0.0, 0.5, 0.5, 1),
 	float4(0.5, 0.0, 0.25, 2),
@@ -83,23 +103,19 @@ static const float4 BLOOMS[] =
 	float4(0.0, 0.0, 0.03, 7)
 	//float4(0.0, 0.0, 0.03125, 9)
 };
-static const int MAX_BLOOM_LOD = BLOOM_COUNT - 1;
+static const int MaxBloomLevel = BloomCount - 1;
 
-static const int BLUR_SAMPLES = NEO_BLOOM_BLUR_SAMPLES;
-/*static const float cBlurWeights[BLUR_SAMPLES] =
-{
-	0.015344, 0.015333, 0.015299, 0.015242, 0.015163, 0.015063, 0.014941,
-	0.014798, 0.014635, 0.014452, 0.014250, 0.014030, 0.013794
-};*/
-static const int BLUR_HALF_SAMPLES = BLUR_SAMPLES / 2;
+static const int BlurSamples = NEO_BLOOM_BLUR_SAMPLES;
+static const float BlurHalfSamples = BlurSamples * 0.5;
 
-/*#if BUFFER_WIDTH > BUFFER_HEIGHT
-static const float2 PIXEL_SCALE = float2(ReShade::AspectRatio, 1.0);
-#else
-static const float2 PIXEL_SCALE = float2(1.0, ReShade::AspectRatio);
-#endif*/
+static const float2 PixelScale = 1.0;
 
-static const float2 PIXEL_SCALE = 1.0;
+static const float2 DirtResolution = float2(
+	NEO_BLOOM_LENS_DIRT_TEXTURE_WIDTH,
+	NEO_BLOOM_LENS_DIRT_TEXTURE_HEIGHT);
+static const float2 DirtPixelSize = 1.0 / DirtResolution;
+static const float DirtAspectRatio = DirtResolution.x * DirtPixelSize.y;
+static const float DirtAspectRatioInv = 1.0 / DirtAspectRatio;
 
 static const int DebugOption_None = 0;
 static const int DebugOption_OnlyBloom = 1;
@@ -119,9 +135,9 @@ static const int BloomBlendMode_Mix = 0;
 static const int BloomBlendMode_Addition = 1;
 static const int BloomBlendMode_Screen = 2;
 
-// #endregion
+//#endregion
 
-// #region Uniforms
+//#region Uniforms
 
 // Bloom
 
@@ -415,7 +431,7 @@ uniform float Mean
 		"\nDefault: 0.0";
 	ui_category = "Blending";
 	ui_min = 0.0;
-	ui_max = BLOOM_COUNT;
+	ui_max = BloomCount;
 	//ui_step = 0.005;
 > = 0.0;
 
@@ -436,9 +452,9 @@ uniform float Variance
 		"\nDefault: 1.0";
 	ui_category = "Blending";
 	ui_min = 1.0;
-	ui_max = BLOOM_COUNT;
+	ui_max = BloomCount;
 	//ui_step = 0.005;
-> = BLOOM_COUNT;
+> = BloomCount;
 
 #if NEO_BLOOM_GHOSTING
 
@@ -664,7 +680,7 @@ uniform int BloomTextureToShow
 		"\nDefault: -1";
 	ui_category = "Debug";
 	ui_min = -1;
-	ui_max = MAX_BLOOM_LOD;
+	ui_max = MaxBloomLevel;
 > = -1;
 
 #endif
@@ -675,9 +691,9 @@ uniform float FrameTime <source = "frametime";>;
 
 #endif
 
-// #endregion
+//#endregion
 
-// #region Textures
+//#region Textures
 
 sampler BackBuffer
 {
@@ -797,9 +813,9 @@ sampler Depth
 
 #endif
 
-// #endregion
+//#endregion
 
-// #region Functions
+//#region Functions
 
 float2 scale_uv(float2 uv, float2 scale, float2 center)
 {
@@ -813,7 +829,7 @@ float2 scale_uv(float2 uv, float2 scale)
 float gaussian(float x, float o)
 {
 	o *= o;
-	float a = 1.0 / sqrt(2.0 * PI * o);
+	float a = 1.0 / sqrt(2.0 * Pi * o);
 	float b = (x * x) / (2.0 * o);
 	return a * exp(-(b));
 }
@@ -823,12 +839,12 @@ float4 blur(sampler sp, float2 uv, float2 dir)
 	float4 color = 0.0;
 	float accum = 0.0;
 
-	uv -= BLUR_HALF_SAMPLES * dir * ReShade::PixelSize;
+	uv -= BlurHalfSamples * dir * ReShade::PixelSize;
 
 	[unroll]
-	for (int i = 1; i < BLUR_SAMPLES; ++i)
+	for (int i = 1; i < BlurSamples; ++i)
 	{
-		float weight = gaussian(i - BLUR_HALF_SAMPLES, Sigma);
+		float weight = gaussian(i - BlurHalfSamples, Sigma);
 
 		uv += dir * ReShade::PixelSize;
 		color += tex2D(sp, uv) * weight;
@@ -872,7 +888,7 @@ float normal_distribution(float x, float u, float o)
 {
 	o *= o;
 
-	float a = 1.0 / sqrt(2.0 * PI * o);
+	float a = 1.0 / sqrt(2.0 * Pi * o);
 	float b = x - u;
 	b *= b;
 	b /= 2.0 * o;
@@ -961,9 +977,9 @@ float3 tonemap(float3 color)
 	return reinhard(color);
 }
 
-// #endregion
+//#endregion
 
-// #region Shaders
+//#region Shaders
 
 #if NEO_BLOOM_DEPTH && NEO_BLOOM_DEPTH_ANTI_FLICKER
 
@@ -1026,9 +1042,9 @@ float4 SplitPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 	float4 color = 0.0;
 
 	[unroll]
-	for (int i = 0; i < BLOOM_COUNT; ++i)
+	for (int i = 0; i < BloomCount; ++i)
 	{
-		float4 rect = BLOOMS[i];
+		float4 rect = BloomLevels[i];
 		float2 rect_uv = scale_uv(uv - rect.xy, 1.0 / rect.z, 0.0);
 		float inbounds =
 			step(0.0, rect_uv.x) * step(rect_uv.x, 1.0) *
@@ -1048,13 +1064,13 @@ float4 SplitPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 
 float4 BlurXPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 {
-	float2 dir = PIXEL_SCALE * float2(1.0, 0.0) * NEO_BLOOM_DOWN_SCALE;
+	float2 dir = PixelScale * float2(1.0, 0.0) * NEO_BLOOM_DOWN_SCALE;
 	return blur(TempA, uv, dir);
 }
 
 float4 BlurYPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 {
-	float2 dir = PIXEL_SCALE * float2(0.0, 1.0) * NEO_BLOOM_DOWN_SCALE;
+	float2 dir = PixelScale * float2(0.0, 1.0) * NEO_BLOOM_DOWN_SCALE;
 	return blur(TempB, uv, dir);
 }
 
@@ -1107,9 +1123,9 @@ float4 JoinBloomsPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 	float accum = 0.0;
 
 	[unroll]
-	for (int i = 0; i < BLOOM_COUNT; ++i)
+	for (int i = 0; i < BloomCount; ++i)
 	{
-		float4 rect = BLOOMS[i];
+		float4 rect = BloomLevels[i];
 		float2 rect_uv = scale_uv(uv, 1.0 / (1.0 + Padding * (i + 1)), 0.5);
 		rect_uv = scale_uv(rect_uv + rect.xy / rect.z, rect.z, 0.0);
 
@@ -1149,19 +1165,38 @@ float4 SaveLastBloomPS(
 
 #endif
 
-float4 BlendPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
+void BlendVS(uint id : SV_VERTEXID, out BlendPassParams p)
 {
+	PostProcessVS(id, p.p, p.uv);
+
+	#if NEO_BLOOM_LENS_DIRT && NEO_BLOOM_LENS_DIRT_ASPECT_RATIO_CORRECTION
+		float ar = BUFFER_WIDTH * BUFFER_RCP_HEIGHT;
+		float ar_inv = BUFFER_HEIGHT * BUFFER_RCP_WIDTH;
+		float is_horizontal = step(ar, DirtAspectRatio);
+		float ratio = lerp(
+			DirtAspectRatio * ar_inv,
+			ar * DirtAspectRatioInv,
+			is_horizontal);
+
+		p.lens_uv = scale_uv(p.uv, float2(1.0, ratio), 0.5);
+	#endif
+}
+
+float4 BlendPS(BlendPassParams p) : SV_TARGET
+{
+	float2 uv = p.uv;
+
 	float4 color = tex2D(BackBuffer, uv);
 	color.rgb = inv_tonemap(color.rgb);
 
 	#if NEO_BLOOM_GHOSTING
 		float4 bloom = tex2D(TempB, uv);
 	#else
-		float4 bloom = JoinBloomsPS(p, uv);
+		float4 bloom = JoinBloomsPS(p.p, uv);
 	#endif
 
 	#if NEO_BLOOM_LENS_DIRT
-		float4 dirt = tex2D(LensDirt, uv);
+		float4 dirt = tex2D(LensDirt, p.lens_uv);
 		bloom.rgb = mad(dirt.rgb, bloom.rgb * LensDirtAmount, bloom.rgb);
 	#endif
 
@@ -1175,7 +1210,7 @@ float4 BlendPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 				}
 				else
 				{
-					float4 rect = BLOOMS[BloomTextureToShow];
+					float4 rect = BloomLevels[BloomTextureToShow];
 					float2 rect_uv = scale_uv(
 						uv,
 						1.0 / (1.0 + Padding * (BloomTextureToShow + 1)),
@@ -1256,7 +1291,7 @@ float4 BlendPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 		}
 	#else
 		if (MagicMode)
-			bloom = uncharted2_tonemap(bloom, 10.0);
+			bloom.rgb = uncharted2_tonemap(bloom.rgb, 10.0);
 
 		color = blend_bloom(color, bloom);
 	#endif
@@ -1267,9 +1302,9 @@ float4 BlendPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 	return color;
 }
 
-// #endregion
+//#endregion
 
-// #region Technique
+//#region Technique
 
 technique NeoBloom
 {
@@ -1339,10 +1374,10 @@ technique NeoBloom
 
 	pass Blend
 	{
-		VertexShader = PostProcessVS;
+		VertexShader = BlendVS;
 		PixelShader = BlendPS;
 		SRGBWriteEnable = true;
 	}
 }
 
-// #endregion
+//#endregion
