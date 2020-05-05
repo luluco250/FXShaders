@@ -2,6 +2,7 @@
 
 #include "ReShade.fxh"
 #include "ReShadeUI.fxh"
+#include "ColorLab.fxh"
 
 //#endregion
 
@@ -17,7 +18,7 @@
 #endif
 
 #ifndef NEO_BLOOM_BLUR_SAMPLES
-#define NEO_BLOOM_BLUR_SAMPLES 13
+#define NEO_BLOOM_BLUR_SAMPLES 27
 #endif
 
 #ifndef NEO_BLOOM_DOWN_SCALE
@@ -71,6 +72,9 @@
 #define NEO_BLOOM_NEEDS_LAST (NEO_BLOOM_GHOSTING || NEO_BLOOM_DEPTH && NEO_BLOOM_DEPTH_ANTI_FLICKER)
 
 //#endregion
+
+namespace FXShaders
+{
 
 //#region Data Types
 
@@ -613,7 +617,7 @@ uniform float Sigma
 	ui_min = 1.0;
 	ui_max = 10.0;
 	ui_step = 0.01;
-> = 2.0;
+> = 4.0;
 
 uniform float Padding
 <
@@ -977,6 +981,12 @@ float3 tonemap(float3 color)
 	return reinhard(color);
 }
 
+float3 apply_saturation(float3 color, float amount)
+{
+	float gray = get_luma_linear(color);
+	return gray + (color - gray) * amount;
+}
+
 //#endregion
 
 //#region Shaders
@@ -1003,12 +1013,8 @@ float GetDepthPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 float4 DownSamplePS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 {
 	float4 color = tex2D(BackBuffer, uv);
-
-	color.rgb = saturate(
-		lerp(get_luma_linear(color.rgb), color.rgb, Saturation));
-
+	color.rgb = saturate(apply_saturation(color.rgb, Saturation));
 	color.rgb *= ColorFilter;
-
 	color.rgb = inv_tonemap_bloom(color.rgb);
 
 	#if NEO_BLOOM_DEPTH
@@ -1381,3 +1387,5 @@ technique NeoBloom
 }
 
 //#endregion
+
+}
