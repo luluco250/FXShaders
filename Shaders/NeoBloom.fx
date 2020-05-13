@@ -1130,7 +1130,7 @@ float4 CalcAdaptPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 	gs = AdaptUseLimits ? clamp(gs, AdaptLimits.x, AdaptLimits.y) : gs;
 
 	float last = tex2D(LastAdapt, 0.0).r;
-	gs = lerp(last, gs, (FrameTime * 0.001) / AdaptTime);
+	gs = lerp(last, gs, saturate((FrameTime * 0.001) / max(AdaptTime, 0.001)));
 
 	return float4(gs, 0.0, 0.0, 1.0);
 }
