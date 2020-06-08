@@ -86,8 +86,8 @@ uniform bool RunColorPicker
 <
 	ui_label = "Run Color Picker";
 	ui_tooltip =
-		"While this option is enabled, pressing right mouse click will save "
-		"the color of the pixel under the cursor.\n"
+		"While this option is enabled, pressing right mouse click will use the "
+		"color of the pixel under the cursor for the whitepoint.\n"
 		"\nDefault: Off";
 > = false;
 
@@ -225,6 +225,8 @@ sampler LastPickedColor
 
 //#region Functions
 
+#if WHITEPOINT_FIXER_MODE_1_OR_2
+
 float GetGrayscale(float3 color)
 {
 	switch (GrayscaleFormula)
@@ -239,6 +241,8 @@ float GetGrayscale(float3 color)
 
 	return 0.0;
 }
+
+#endif
 
 float GetWhitepoint()
 {
@@ -387,18 +391,20 @@ float4 MainPS(
 		}
 	#endif
 
-	if (ShowWhitepoint)
-	{
-		float2 whitepoint_pos =
-			(1.0 - abs(uv - 0.5) * 2.0) * res;
-
-		if (
-			whitepoint_pos.x < ShowWhitepointSize.x &&
-			whitepoint_pos.y < ShowWhitepointSize.y)
+	#if WHITEPOINT_FIXER_MODE_1_OR_2
+		if (ShowWhitepoint)
 		{
-			color.rgb = whitepoint;
+			float2 whitepoint_pos =
+				(1.0 - abs(uv - 0.5) * 2.0) * res;
+
+			if (
+				whitepoint_pos.x < ShowWhitepointSize.x &&
+				whitepoint_pos.y < ShowWhitepointSize.y)
+			{
+				color.rgb = whitepoint;
+			}
 		}
-	}
+	#endif
 
 	return color;
 }
