@@ -56,6 +56,16 @@ lerp(a, b, saturate((dt) / max(t, 0.001)))
 static const float Pi = 3.14159;
 
 /**
+ * Degrees to radians conversion multiplier.
+ */
+static const float DegreesToRadians = Pi / 180.0;
+
+/**
+ * Radians to degrees conversion multiplier.
+ */
+static const float RadiansToDegrees = 180.0 / Pi;
+
+/**
  * Returns the current resolution.
  */
 float2 GetResolution()
@@ -77,6 +87,33 @@ float2 GetPixelSize()
 float4 GetScreenParams()
 {
 	return float4(GetResolution(), GetPixelSize());
+}
+
+/**
+ * Get the offset of a position by a given angle and distance.
+ *
+ * @param pos The position to calculate the offset from.
+ * @param angle The angle of the offset in radians.
+ * @param distance The distance of the offset from the original position.
+ */
+float2 GetOffsetByAngleDistance(float2 pos, float angle, float distance)
+{
+	float2 cosSin;
+	sincos(angle, cosSin.y, cosSin.x);
+
+	return mad(distance, cosSin, pos);
+}
+
+/**
+ * Get a 2D direction from a given angle and magnitude.
+ * It is the same as GetOffsetByAngleDistance() except the origin is (0, 0).
+ *
+ * @param angle The angle of the direction in radians.
+ * @param magnitude The magnitude of the direction.
+ */
+float2 GetDirectionFromAngleMagnitude(float angle, float magnitude)
+{
+	return GetOffsetByAngleDistance(0.0, angle, magnitude);
 }
 
 /**
