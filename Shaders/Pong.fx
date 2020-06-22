@@ -4,6 +4,7 @@
 #include "ReShadeUI.fxh"
 #include "DrawText.fxh"
 #include "FXShaders/Common.fxh"
+#include "FXShaders/Canvas.fxh"
 
 #define DECLARE_VARIABLE_TEX(name, format) \
 texture name##Tex \
@@ -31,6 +32,10 @@ static const float2 BallSize = 50;
 static const float2 PaddleSize = float2(250, 50);
 static const float PaddleYPercent = 0.9;
 static const float BallSpeedIncreasePercent = 1.1;
+
+static const int GameState_Uninitialized = 0;
+static const int GameState_Running = 1;
+static const int GameState_GameOver = 2;
 
 //#endregion
 
@@ -93,31 +98,13 @@ uniform float FrameTime <source = "frametime";>;
 
 //#region Textures
 
-DECLARE_VARIABLE_TEX(Initialized, R8);
-DECLARE_VARIABLE_TEX(CurrBallPosSpeed, RGBA16F);
-DECLARE_VARIABLE_TEX(LastBallPosSpeed, RGBA16F);
+DECLARE_VARIABLE_TEX(GameState, R32F);
+DECLARE_VARIABLE_TEX(CurrBallPosSpeed, RGBA32F);
+DECLARE_VARIABLE_TEX(LastBallPosSpeed, RGBA32F);
 
 //#endregion
 
 //#region Functions
-
-void FillRect(inout float4 color, float2 coord, float4 rect, float4 fillColor)
-{
-	if (
-		coord.x >= rect.x && coord.x <= rect.z &&
-		coord.y >= rect.y && coord.y <= rect.w)
-	{
-		color = fillColor;
-	}
-}
-
-float4 ConvertToRect(float2 pos, float2 size)
-{
-	return mad(float2(-0.5, 0.5).xxyy, size.xyxy, pos.xyxy);
-	//return pos.xyxy + size.xyxy * float2(-0.5, 0.5).xxyy;
-	// size *= 0.5;
-	// return float4(pos - size, pos + size);
-}
 
 float2 GetBallPos()
 {
@@ -154,20 +141,6 @@ void RenderPaddle(inout float4 color, float2 coord, float2 paddlePos)
 	FillRect(color, coord, rect, PaddleColor);
 }
 
-/*
-    y           y
-  +---+       +---+
-x | A | z   x | B | z
-  +---+       +---+
-    w           w
-*/
-bool AABBCollision(float4 a, float4 b)
-{
-	return
-		a.x < b.z && b.x < a.z &&
-		a.y < b.w && b.y < a.w;
-}
-
 //#endregion
 
 //#region Shaders
@@ -175,11 +148,11 @@ bool AABBCollision(float4 a, float4 b)
 void InitPS(
 	float4 p : SV_POSITION,
 	float2 uv : TEXCOORD,
-	out float4 initialized : SV_TARGET0,
+	out float4 gameState : SV_TARGET0,
 	out float4 currBallPosSpeed : SV_TARGET1,
 	out float4 lastBallPosSpeed : SV_TARGET2)
 {
-	initialized = 1.0;
+	gameState = GameState_Running;
 
 	float2 startPos = BUFFER_SCREEN_SIZE * float2(0.5, BallInitialYPercent);
 
@@ -199,9 +172,9 @@ void CheckInitVS(
 	pos = 0;
 	uv = 0;
 
-	float initialized = tex2Dfetch(Initialized, 0).x;
+	int gameState = tex2Dfetch(GameState, 0).x;
 
-	if (initialized > 0.0)
+	if (gameState == GameState_Running)
 		PostProcessVS(id, pos, uv);
 }
 
@@ -266,7 +239,7 @@ technique Pong_Init <enabled = true; hidden = true; timeout = 1000;>
 	{
 		VertexShader = PostProcessVS;
 		PixelShader = InitPS;
-		RenderTarget0 = InitializedTex;
+		RenderTarget0 = GameStateTex;
 		RenderTarget1 = CurrBallPosSpeedTex;
 		RenderTarget2 = LastBallPosSpeedTex;
 	}

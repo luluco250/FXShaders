@@ -2,7 +2,7 @@
 
 /*
 
-Header that defines virtual key codes.
+FXShaders header that defines virtual key codes.
 
 Taken from:
 	https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
