@@ -210,7 +210,6 @@ for (const elem of arr) {
 #define VK_OEM 0xE1
 #define VK_OEM_102 0xE2
 #define VK_PROCESSKEY 0xE5
-#define VK_OEM 0xE6
 #define VK_PACKET 0xE7
 #define VK_ATTN 0xF6
 #define VK_CRSEL 0xF7
