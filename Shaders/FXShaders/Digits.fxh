@@ -3,6 +3,8 @@
 namespace FXShaders
 {
 
+//#region Digit Enum
+
 static const int Digit_Space = 0;
 static const int Digit_Exclamation = 1;
 static const int Digit_DoubleQuote = 2;
@@ -100,13 +102,20 @@ static const int Digit_CloseCurlyBrace = 93;
 static const int Digit_Tilde = 94;
 static const int Digit_Block = 95;
 
-static const int2 DigitDimensions = int2(3, 5);
+//#endregion
 
-static const int DigitSize = DigitDimensions.x * DigitDimensions.y;
+static const int2 DigitSize = int2(3, 5);
+
+static const int DigitPixelCount = DigitSize.x * DigitSize.y;
 
 static const int DigitCount = 95;
 
-static const float Digits[] =
+static const int2 DigitMapSize =
+	int2(DigitSize.x * DigitCount + DigitCount - 1, DigitSize.y);
+
+//#region Digit Array
+
+/*static const float Digits[] =
 {
 	// Space
 	0, 0, 0,
@@ -190,7 +199,6 @@ static const float Digits[] =
 	0, 1, 0,
 	1, 1, 1,
 	0, 1, 0,
-	0, 0, 0,
 	0, 0, 0,
 
 	// ,
@@ -787,6 +795,115 @@ static const float Digits[] =
 	1, 1, 1,
 	1, 1, 1,
 	1, 1, 1
+};*/
+
+//#endregion
+
+//#region Textures
+
+texture DigitMapTex <source = "DigitMap.png";>
+{
+	Width = DigitMapSize.x;
+	Height = DigitMapSize.y;
+	Format = R8;
 };
+
+sampler DigitMap
+{
+	Texture = DigitMapTex;
+	MinFilter = POINT;
+	MagFilter = POINT;
+	MipFilter = POINT;
+	AddressU = REPEAT;
+	AddressV = REPEAT;
+};
+
+//#endregion
+
+//#region Functions
+
+float GetDigitPixel(int digit, int2 pos)
+{
+	return tex2Dfetch(DigitMap, int4(pos.x + digit * DigitSize.x + digit, pos.y, 0, 0)).x;
+
+	//return Digits[pos.x + DigitSize.x * (pos.y + digit)];
+}
+
+void RenderDigit(
+	inout float4 color,
+	float2 coord,
+	int digit,
+	int digitScale,
+	int2 digitOffset,
+	float4 digitColor)
+{
+	// if (digit > DigitCount)
+		// return;
+
+	int2 arrayPos = coord;
+	arrayPos /= digitScale;
+	arrayPos -= digitOffset;
+
+	if (
+		arrayPos.x < 0 || arrayPos.x >= DigitSize.x ||
+		arrayPos.y < 0 || arrayPos.y >= DigitSize.y)
+	{
+		return;
+	}
+
+	float digitPixel = GetDigitPixel(digit, arrayPos);
+	color.rgb = lerp(color.rgb, digitColor.rgb, digitPixel * digitColor.a);
+	color.a = max(color.a, digitColor.a * digitPixel);
+}
+
+void RenderInteger(
+	inout float4 color,
+	float2 coord,
+	int value,
+	int digits,
+	bool zeroFill,
+	int digitScale,
+	int2 digitOffset,
+	float4 digitColor)
+{
+	if (zeroFill)
+	{
+		[unroll]
+		for (int i = digits - 1; i >= 0; --i)
+		{
+			RenderDigit(
+				color,
+				coord,
+				Digit_Zero - 1 + value % 10,
+				digitScale,
+				digitOffset + int2(i * DigitSize.x + i, 0),
+				digitColor);
+
+			value /= 10;
+		}
+	}
+	else
+	{
+		[unroll]
+		for (int i = digits - 1; i >= 0; --i)
+		{
+			// Skip rendering zero digits to the left.
+			// We *could* just use break, but that'd require the loop to be
+			// dynamic.
+			if (value != 0 || i == digits - 1)
+				RenderDigit(
+					color,
+					coord,
+					Digit_Zero - 1 + value % 10,
+					digitScale,
+					digitOffset + int2(i * DigitSize.x + i, 0),
+					digitColor);
+
+			value /= 10;
+		}
+	}
+}
+
+//#endregion
 
 }

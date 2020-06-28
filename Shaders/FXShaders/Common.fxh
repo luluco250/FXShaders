@@ -465,4 +465,23 @@ float3 apply_saturation(float3 color, float amount)
 	return gray + (color - gray) * amount;
 }
 
+/**
+ * Clamps the magnitude/length of a 2D vector.
+ * Better than clamp() because it maintains the "direction" of the vector.
+ *
+ * @param v The vector to clamp the magnitude of.
+ * @param minMax The minimum and maximum magnitude values respectively.
+ */
+float2 ClampMagnitude(float2 v, float2 minMax) {
+	if (v.x == 0.0 && v.y == 0.0)
+	{
+		return 0.0;
+	}
+	else
+	{
+		float mag = length(v);
+		return (mag < minMax.x) ? 0.0 : (v / mag) * min(mag, minMax.y);
+	}
+}
+
 }
