@@ -146,91 +146,6 @@ float2 scale_uv(float2 uv, float2 scale)
 }
 
 /**
- * Standard Reinhard tonemapping formula.
- *
- * @param color The color to apply tonemapping to.
- */
-float3 reinhard(float3 color)
-{
-	return color / (1.0 + color);
-}
-
-/**
- * Inverse of the standard Reinhard tonemapping formula.
- *
- * @param color The color to apply inverse tonemapping to.
- * @param inv_max The inverse/reciprocal of the maximum brightness to be
- *                generated.
- *                Sample parameter: rcp(100.0)
- */
-float3 inv_reinhard(float3 color, float inv_max)
-{
-	return (color / max(1.0 - color, inv_max));
-}
-
-/**
- * Modified inverse of the Reinhard tonemapping formula that only applies to
- * the luma.
- *
- * @param color The color to apply inverse tonemapping to.
- * @param inv_max The inverse/reciprocal of the maximum brightness to be
- *                generated.
- *                Sample parameter: rcp(100.0)
- */
-float3 inv_reinhard_lum(float3 color, float inv_max)
-{
-	float lum = max(color.r, max(color.g, color.b));
-	return color * (lum / max(1.0 - lum, inv_max));
-}
-
-/**
- * The standard, copy/paste Uncharted 2 filmic tonemapping formula.
- *
- * @param color The color to apply tonemapping to.
- * @param exposure The amount of exposure to be applied to the color during
- *                 tonemapping.
- */
-float3 uncharted2_tonemap(float3 color, float exposure) {
-    // Shoulder strength.
-	static const float A = 0.15;
-
-	// Linear strength.
-    static const float B = 0.50;
-
-	// Linear angle.
-	static const float C = 0.10;
-
-	// Toe strength.
-	static const float D = 0.20;
-
-	// Toe numerator.
-	static const float E = 0.02;
-
-	// Toe denominator.
-	static const float F = 0.30;
-
-	// Linear white point value.
-	static const float W = 11.2;
-
-    static const float white =
-		1.0 / ((
-			(W * (A * W + C * B) + D * E) /
-			(W * (A * W + B) + D * F)
-		) - E / F);
-
-	color *= exposure;
-
-    color = (
-		(color * (A * color + C * B) + D * E) /
-		(color * (A * color + B) + D * F)
-	) - E / F;
-
-	color *= white;
-
-    return color;
-}
-
-/**
  * Standard normal distribution formula.
  * Adapted from: https://en.wikipedia.org/wiki/Normal_distribution#General_normal_distribution
  *
@@ -260,7 +175,7 @@ float normal_distribution(float x, float u, float o)
  *          This parameter is squared in this function, so there's no need to
  *          square it beforehand.
  */
-float gaussian1D(float x, float o)
+float Gaussian1D(float x, float o)
 {
 	o *= o;
 	float a = 1.0 / sqrt(2.0 * Pi * o);
@@ -276,7 +191,7 @@ float gaussian1D(float x, float o)
  *          This parameter is squared in this function, so there's no need to
  *          square it beforehand.
  */
-float gaussian2D(float2 i, float o)
+float Gaussian2D(float2 i, float o)
 {
 	o *= o;
 	float a = 1.0 / (2.0 * Pi * o);
@@ -297,7 +212,7 @@ float gaussian2D(float2 i, float o)
  * @param samples The amount of blur samples to perform.
  *                This value must be constant.
  */
-float4 gaussian_blur1D(
+float4 GaussianBlur1D(
 	sampler sp,
 	float2 uv,
 	float2 dir,
@@ -314,7 +229,7 @@ float4 gaussian_blur1D(
 	[unroll]
 	for (int i = 0; i < samples; ++i)
 	{
-		float weight = gaussian1D(i - half_samples, sigma);
+		float weight = Gaussian1D(i - half_samples, sigma);
 
 		color += tex2D(sp, uv) * weight;
 		accum += weight;
@@ -325,7 +240,7 @@ float4 gaussian_blur1D(
 	return color / accum;
 }
 
-float4 gaussian_blur2D(
+float4 GaussianBlur2D(
 	sampler sp,
 	float2 uv,
 	float2 scale,
@@ -348,7 +263,7 @@ float4 gaussian_blur2D(
 		for (int y = 0; y < samples.y; ++y)
 		{
 			float2 pos = float2(x, y);
-			float weight = gaussian2D(abs(pos - half_samples), sigma);
+			float weight = Gaussian2D(abs(pos - half_samples), sigma);
 
 			color += tex2D(sp, uv) * weight;
 			accum += weight;
@@ -426,7 +341,7 @@ float3 checkered_pattern(float2 uv, float size, float color_a, float color_b)
 	static const float3 cColorA = pow(0.15, 2.2);
 	static const float3 cColorB = pow(0.5, 2.2);
 
-	uv *= ReShade::ScreenSize;
+	uv *= GetResolution();
 	uv %= cSize;
 
 	float half_size = cSize * 0.5;
@@ -484,4 +399,22 @@ float2 ClampMagnitude(float2 v, float2 minMax) {
 	}
 }
 
+/**
+ * Canonical fullscreen vertex shader.
+ *
+ * @param id The vertex id.
+ * @param pos Output vertex position.
+ * @param uv Output normalized pixel position.
+ */
+void ScreenVS(
+	uint id : SV_VERTEXID,
+	out float4 pos : SV_POSITION,
+	out float2 uv : TEXCOORD)
+{
+	uv.x = (id == 2) ? 2.0 : 0.0;
+	uv.y = (id == 1) ? 2.0 : 0.0;
+
+	pos = float4(uv * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
 }
+
+} // Namespace.
