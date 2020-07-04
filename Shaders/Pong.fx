@@ -6,6 +6,7 @@
 #include "FXShaders/Common.fxh"
 #include "FXShaders/Canvas.fxh"
 #include "FXShaders/Digits.fxh"
+#include "FXShaders/Math.fxh"
 
 #define DECLARE_VARIABLE_TEX(name, format) \
 texture name##Tex \
@@ -30,9 +31,18 @@ namespace FXShaders
 
 static const float BallInitialYPercent = 0.2;
 static const float2 BallSize = 50;
+
+static const float BallSpeedIncreasePercent = 1.05;
+
 static const float2 PaddleSize = float2(250, 50);
 static const float PaddleYPercent = 0.9;
-static const float BallSpeedIncreasePercent = 1.1;
+
+static const int Corner_TopLeft = 0;
+static const int Corner_TopRight = 1;
+static const int Corner_BottomLeft = 2;
+static const int Corner_BottomRight = 3;
+
+static const int2 EasterSize = 128;
 
 //#endregion
 
@@ -148,6 +158,19 @@ DECLARE_VARIABLE_TEX(LastGameState, RGBA32F);
 DECLARE_VARIABLE_TEX(BallPosSpeed, RGBA32F);
 DECLARE_VARIABLE_TEX(LastBallPosSpeed, RGBA32F);
 
+texture EasterTex <source = "Pong.png";>
+{
+	Width = EasterSize.x;
+	Height = EasterSize.y;
+};
+
+sampler Easter
+{
+	Texture = EasterTex;
+	AddressU = BORDER;
+	AddressV = BORDER;
+};
+
 //#endregion
 
 //#region Functions
@@ -188,6 +211,41 @@ void RenderScore(inout float4 color, float2 coord, int score)
 		32,
 		0,
 		ScoreColor);
+}
+
+float2 DeobfuscateCoord(float2 coord)
+{
+	if ((coord.y % 2.0) > 1.0)
+		coord.x = EasterSize.x - coord.x;
+
+	if ((coord.x % 2.0) > 1.0)
+		coord.y = EasterSize.y - coord.y;
+
+	return coord;
+}
+
+void RenderEaster(inout float4 color, float2 coord, int corner)
+{
+	switch (corner)
+	{
+		case Corner_TopLeft:
+			coord.y -= (Timer * 0.1) % 128 - 128;
+			coord.y = EasterSize.y - coord.y;
+			coord = DeobfuscateCoord(coord);
+			break;
+		case Corner_TopRight:
+			coord.x -= BUFFER_WIDTH - EasterSize.x;
+			coord.x = EasterSize.x - coord.x;
+			coord = DeobfuscateCoord(coord);
+			coord.y = EasterSize.y - coord.y;
+			break;
+	}
+
+	float4 easter = tex2Dfetch(Easter, int4(coord, 0, 0));
+	easter.rgb = 1.0 - easter.rgb;
+
+	color.rgb = lerp(color.rgb, easter.rgb, easter.a);
+	color.a = max(color.a, easter.a);
 }
 
 //#endregion
@@ -297,6 +355,8 @@ float4 RenderPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 	float4 gameState = tex2Dfetch(GameState, 0);
 	float4 posSpeed = tex2Dfetch(BallPosSpeed, 0);
 	float4 pongGame = BackgroundColor;
+
+	RenderEaster(pongGame, coord, Corner_TopLeft);
 
 	RenderBall(pongGame, coord, posSpeed.xy);
 

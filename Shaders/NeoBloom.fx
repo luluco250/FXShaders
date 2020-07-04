@@ -3,7 +3,9 @@
 #include "ReShade.fxh"
 #include "ReShadeUI.fxh"
 #include "ColorLab.fxh"
+#include "FXShaders/Blending.fxh"
 #include "FXShaders/Common.fxh"
+#include "FXShaders/Convolution.fxh"
 #include "FXShaders/Tonemap.fxh"
 
 //#endregion
@@ -849,7 +851,7 @@ float3 blend_bloom(float3 color, float3 bloom)
 		case BloomBlendMode_Addition:
 			return color + bloom * w * 3.0;
 		case BloomBlendMode_Screen:
-			return blend_mode_screen(color, bloom, w);
+			return BlendScreen(color, bloom, w);
 	}
 }
 
@@ -903,7 +905,7 @@ float GetDepthPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 float4 DownSamplePS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 {
 	float4 color = tex2D(BackBuffer, uv);
-	color.rgb = saturate(apply_saturation(color.rgb, Saturation));
+	color.rgb = saturate(ApplySaturation(color.rgb, Saturation));
 	color.rgb *= ColorFilter;
 	color.rgb = inv_tonemap_bloom(color.rgb);
 
@@ -1033,7 +1035,7 @@ float4 JoinBloomsPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 		float2 rect_uv = scale_uv(uv, 1.0 / (1.0 + Padding * (i + 1)), 0.5);
 		rect_uv = scale_uv(rect_uv + rect.xy / rect.z, rect.z, 0.0);
 
-		float weight = normal_distribution(i, Mean, Variance);
+		float weight = NormalDistribution(i, Mean, Variance);
 		bloom += tex2D(AtlasA, rect_uv) * weight;
 		accum += weight;
 	}
@@ -1188,7 +1190,7 @@ float4 BlendPS(BlendPassParams p) : SV_TARGET
 		exposure = lerp(1.0, exposure, AdaptAmount);
 
 		if (MagicMode)
-			bloom = Uncharted2Tonemap(bloom, exposure * 0.1);
+			bloom.rgb = Uncharted2Tonemap(bloom.rgb * exposure * 0.1);
 
 		switch (AdaptMode)
 		{
@@ -1203,9 +1205,9 @@ float4 BlendPS(BlendPassParams p) : SV_TARGET
 		}
 	#else
 		if (MagicMode)
-			bloom.rgb = Uncharted2Tonemap(bloom.rgb, 10.0);
+			bloom.rgb = Uncharted2Tonemap(bloom.rgb * 10.0);
 
-		color = blend_bloom(color, bloom);
+		color.rgb = blend_bloom(color.rgb, bloom.rgb);
 	#endif
 
 	if (!MagicMode)

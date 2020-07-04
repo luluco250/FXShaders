@@ -3,6 +3,7 @@
 #include "ReShade.fxh"
 #include "ReShadeUI.fxh"
 #include "FXShaders/Common.fxh"
+#include "FXShaders/Math.fxh"
 
 /*
 	0: Manual
@@ -236,7 +237,7 @@ float GetGrayscale(float3 color)
 		case GrayscaleFormula_Max:
 			return max(color.r, max(color.g, color.b));
 		case GrayscaleFormula_Luma:
-			return get_luma_gamma(color);
+			return GetLumaGamma(color);
 	}
 
 	return 0.0;
