@@ -16,19 +16,57 @@ namespace FXShaders
 static const float FloatEpsilon = 0.001;
 
 /**
- * Defines a _Help stub uniform int that serves as a help text in the UI.
- *
- * @param text The text to be displayed inside the Help fold.
+ * Defines a stub uniform int with with a customized display text for
+ * informational purposes.
  */
-#define FXSHADERS_CREATE_HELP(text) \
-uniform int _Help \
+#define FXSHADERS_MESSAGE(name, text) \
+uniform int _##name \
 < \
 	ui_text = text; \
-	ui_category = "Help"; \
+	ui_label = " "; \
+	ui_type = "radio"; \
+>
+
+/**
+ * Defines a stub uniform int with with a customized display text for
+ * informational purposes, including a category folder.
+ */
+#define FXSHADERS_MESSAGE_FOLDED(name, text) \
+uniform int _##name \
+< \
+	ui_text = text; \
+	ui_category = #name; \
 	ui_category_closed = true; \
 	ui_label = " "; \
 	ui_type = "radio"; \
 >
+
+/**
+ * Defines a _Help stub uniform int that serves as a help text in the UI.
+ *
+ * @param text The text to be displayed inside the Help fold.
+ */
+#define FXSHADERS_HELP(text) FXSHADERS_MESSAGE_FOLDED(Help, text)
+
+/**
+ * Defines a _WipWarn stub uniform int that serves as a warning that the current
+ * effect is a work-in-progress.
+ */
+#define FXSHADERS_WIP_WARNING() \
+FXSHADERS_MESSAGE( \
+	WipWarn, \
+	"This effect is currently a work in progress and as such some " \
+	"aspects may change in the future and some features may still be " \
+	"missing or incomplete.\n")
+
+/**
+ * Defines a _Credits stub uniform int that displays crediting information.
+ */
+#define FXSHADERS_CREDITS() FXSHADERS_MESSAGE_FOLDED( \
+	Credits, \
+	"This effect was made by Lucas Melo (luluco250).\n" \
+	"Updates may be available at https://github.com/luluco250/FXShaders\n" \
+	"Any issues, suggestions or requests can also be filed there.")
 
 /**
  * Interpolate between two values using a time parameter.

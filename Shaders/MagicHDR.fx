@@ -13,8 +13,16 @@
 #define MAGIC_HDR_BLUR_SAMPLES 21
 #endif
 
+#if MAGIC_HDR_BLUR_SAMPLES < 1
+	#error "Blur samples cannot be less than 1"
+#endif
+
 #ifndef MAGIC_HDR_DOWNSAMPLE
-#define MAGIC_HDR_DOWNSAMPLE 2
+#define MAGIC_HDR_DOWNSAMPLE 1
+#endif
+
+#if MAGIC_HDR_DOWNSAMPLE < 1
+	#error "Downsample cannot be less than 1x"
 #endif
 
 //#endregion
@@ -24,11 +32,11 @@ namespace FXShaders
 
 //#region Constants
 
-static const int BlurPassCount = 5;
-
 static const int2 DownsampleAmount = MAGIC_HDR_DOWNSAMPLE;
 
 static const int BlurSamples = MAGIC_HDR_BLUR_SAMPLES;
+
+static const int InvTonemap_Reinhard = 0;
 
 static const int Tonemap_Reinhard = 0;
 static const int Tonemap_BakingLabACES = 1;
@@ -38,43 +46,79 @@ static const int Tonemap_Uncharted2Filmic = 2;
 
 //#region Uniforms
 
+FXSHADERS_WIP_WARNING();
+
+FXSHADERS_CREDITS();
+
+FXSHADERS_HELP(
+	"This effect allows you to add both bloom and tonemapping, drastically "
+	"changing the mood of the image.\n"
+	"\n"
+	"Care should be taken to select an appropriate inverse tonemapper that can "
+	"accurately extract HDR information from the original image.\n"
+	"HDR10 users should also take care to select a tonemapper that's "
+	"compatible with what the HDR monitor is expecting from the LDR output of "
+	"the game, which *is* tonemapped too.\n"
+	"\n"
+	"Available preprocessor directives:\n"
+	"\n"
+	"MAGIC_HDR_BLUR_SAMPLES:\n"
+	"  Determines how many pixels are sampled during each blur pass for the "
+	"bloom effect.\n"
+	"  This value directly influences the Blur Size, so the more samples the "
+	"bigger the blur size can be.\n"
+	"  Setting MAGIC_HDR_DOWNSAMPLE above 1x will also increase the blur size "
+	"to compensate for the lower resolution. This effect may be desirable, "
+	"however.\n"
+	"\n"
+	"MAGIC_HDR_DOWNSAMPLE:\n"
+	"  Serves to divide the resolution of the textures used for processing the "
+	"bloom effect.\n"
+	"  Leave at 1x for maximum detail, 2x or 4x should still be fine.\n"
+	"  Values too high may introduce flickering.\n"
+);
+
 uniform float BloomAmount
 <
 	ui_category = "Bloom Appearance";
 	ui_label = "Bloom Amount";
 	ui_tooltip =
-		"Amount of bloom to blend with the image.\n"
-		"\nDefault: 0.5";
+		"Amount of bloom to apply to the image.\n"
+		"\nDefault: 0.2";
 	ui_type = "slider";
 	ui_min = 0.0;
 	ui_max = 1.0;
-> = 0.5;
-
-uniform float Whitepoint
-<
-	ui_category = "Reverse Tonemap";
-	ui_label = "Whitepoint";
-	ui_tooltip =
-		"The whitepoint of the HDR image.\n"
-		"Anything with this brightness is pure white.\n"
-		"\nDefault: 4.0";
-	ui_type = "slider";
-	ui_min = 1.0;
-	ui_max = 10.0;
-	ui_step = 1.0;
-> = 4.0;
+> = 0.2;
 
 uniform float BlurSize
 <
 	ui_category = "Blur Appearance";
 	ui_label = "Blur Size";
 	ui_tooltip =
-		"The size of the gaussian blur.\n"
+		"The size of the gaussian blur applied to create the bloom effect.\n"
+		"This value is directly influenced by the values of "
+		"MAGIC_HDR_BLUR_SAMPLES and MAGIC_HDR_DOWNSAMPLE.\n"
 		"\nDefault: 1.0";
 	ui_type = "slider";
 	ui_min = 0.01;
 	ui_max = 1.0;
 > = 1.0;
+
+uniform float Whitepoint
+<
+	ui_category = "Tonemapping";
+	ui_label = "Whitepoint";
+	ui_tooltip =
+		"The whitepoint of the HDR image.\n"
+		"Anything with this brightness is pure white.\n"
+		"It controls how bright objects are perceived after inverse "
+		"tonemapping, with higher values leading to a brighter bloom effect.\n"
+		"\nDefault: 2";
+	ui_type = "slider";
+	ui_min = 1;
+	ui_max = 10;
+	ui_step = 1;
+> = 2;
 
 uniform float Exposure
 <
@@ -82,19 +126,31 @@ uniform float Exposure
 	ui_label = "Exposure";
 	ui_tooltip =
 		"Exposure applied at the end of the effect.\n"
-		"Measured in f-stops.\n"
-		"\nDefault: 0.0";
+		"This value is measured in f-stops.\n"
+		"\nDefault: 1.0";
 	ui_type = "slider";
 	ui_min = -3.0;
 	ui_max = 3.0;
-> = 0.0;
+> = 1.0;
+
+uniform int InvTonemap
+<
+	ui_category = "Tonemapping";
+	ui_label = "Inverse Tonemapper";
+	ui_tooltip =
+		"The inverse tonemapping operator used at the beginning of the "
+		"effect.\n"
+		"\nDefault: Reinhard";
+	ui_type = "combo";
+	ui_items = "Reinhard\0";
+> = 0;
 
 uniform int Tonemap
 <
 	ui_category = "Tonemapping";
-	ui_label = "Tonemap";
+	ui_label = "Tonemapper";
 	ui_tooltip =
-		"The tonemap operator used at the end of the effect.\n"
+		"The tonemapping operator used at the end of the effect.\n"
 		"\nDefault: Baking Lab ACES";
 	ui_type = "combo";
 	ui_items = "Reinhard\0Baking Lab ACES\0Uncharted 2 Filmic\0";
@@ -112,6 +168,7 @@ sampler Color
 	SRGBTexture = true;
 };
 
+// TODO: Try to figure out a way to get rid of the need for this texture.
 texture DownsampledTex <pooled = true;>
 {
 	Width = BUFFER_WIDTH / DownsampleAmount.x;
@@ -224,9 +281,18 @@ sampler Bloom6
 
 //#region Functions
 
-float3 ApplyReverseTonemap(float3 color)
+float3 ApplyInverseTonemap(float3 color)
 {
-	color = ReinhardInv(color, rcp(max(Whitepoint, FloatEpsilon)));
+	float w = max(Whitepoint, FloatEpsilon);
+	w = exp2(w);
+
+	// TODO: Add more inverse tonemappers.
+	switch (InvTonemap)
+	{
+		case InvTonemap_Reinhard:
+			color = ReinhardInv(color, rcp(w));
+			break;
+	}
 
 	return color;
 }
@@ -247,16 +313,19 @@ float4 Blur(sampler sp, float2 uv, float2 dir)
 
 //#region Shaders
 
-float4 ReverseTonemapPS(
+float4 InverseTonemapPS(
 	float4 p : SV_POSITION,
 	float2 uv : TEXCOORD) : SV_TARGET
 {
 	float4 color = tex2D(Color, uv);
-	color.rgb = ApplyReverseTonemap(color.rgb);
+	color.rgb = ApplyInverseTonemap(color.rgb);
+
+	// TODO: Saturation and other color filtering options?
 
 	return color;
 }
 
+// TODO: Create a blur shader macro?
 float4 Blur0PS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 {
 	return Blur(Downsampled, uv, float2(1.0, 0.0));
@@ -332,7 +401,9 @@ float4 TonemapPS(
 	float2 uv : TEXCOORD) : SV_TARGET
 {
 	float4 color = tex2D(Color, uv);
-	color.rgb = ApplyReverseTonemap(color.rgb);
+	color.rgb = ApplyInverseTonemap(color.rgb);
+
+	// TODO: Maybe implement normal distribution?
 
 	float4 bloom =
 		tex2D(Bloom0, uv) +
@@ -345,17 +416,12 @@ float4 TonemapPS(
 
 	bloom /= 7;
 
-	if (0 > 0)
-	{
-		color = bloom;
-	}
-	else
-	{
-		color.rgb = lerp(color.rgb, bloom.rgb, log(BloomAmount + 1.0));
-	}
+	color.rgb = lerp(color.rgb, bloom.rgb, log10(BloomAmount + 1.0));
 
+	// TODO: Implement adaptation.
 	float exposure = exp(Exposure);
 
+	// TODO: Add more tonemappers.
 	switch (Tonemap)
 	{
 		case Tonemap_Reinhard:
@@ -376,14 +442,15 @@ float4 TonemapPS(
 
 //#region Technique
 
-technique MagicHDR
+technique MagicHDR <ui_tooltip = "FXShaders - Bloom and tonemapping effect.";>
 {
-	pass ReverseTonemap
+	pass InverseTonemap
 	{
 		VertexShader = ScreenVS;
-		PixelShader = ReverseTonemapPS;
+		PixelShader = InverseTonemapPS;
 		RenderTarget = DownsampledTex;
 	}
+	// TODO: Create a blur pass macro?
 	pass Blur0
 	{
 		VertexShader = ScreenVS;

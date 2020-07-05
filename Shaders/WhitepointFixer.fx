@@ -59,7 +59,7 @@ static const int GrayscaleFormula_Luma = 2;
 
 //#region Uniforms
 
-FXSHADERS_CREATE_HELP(
+FXSHADERS_HELP(
 	"The different modes can be used by setting WHITEPOINT_FIXER_MODE to:\n"
 	"  0: Manual color selection, using a parameter.\n"
 	"  1: Use a color picker on the image to select the whitepoint color.\n"

@@ -13,7 +13,7 @@
 
 //#region Uniforms
 
-FXSHADERS_CREATE_HELP(
+FXSHADERS_HELP(
 	"This effect allows you to overwrite the transparency of screenshots using "
 	"the scene depth as the alpha channel.\n"
 	"\n"

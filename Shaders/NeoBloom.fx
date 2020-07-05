@@ -144,7 +144,7 @@ static const int BloomBlendMode_Screen = 2;
 
 // Bloom
 
-FXSHADERS_CREATE_HELP(
+FXSHADERS_HELP(
 	"NeoBloom has many options and may be difficult to setup or may look "
 	"bad at first, but it's designed to be very flexible to adapt to many "
 	"different cases.\n"
