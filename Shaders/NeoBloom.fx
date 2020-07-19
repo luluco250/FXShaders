@@ -860,7 +860,7 @@ float3 inv_tonemap_bloom(float3 color)
 	if (MagicMode)
 		return pow(abs(color), MaxBrightness * 0.01);
 
-	return ReinhardInvLum(color, 1.0 / MaxBrightness);
+	return Reinhard::InvTonemapLum(color, 1.0 / MaxBrightness);
 }
 
 float3 inv_tonemap(float3 color)
@@ -868,7 +868,7 @@ float3 inv_tonemap(float3 color)
 	if (MagicMode)
 		return color;
 
-	return ReinhardInv(color, 1.0 / MaxBrightness);
+	return Reinhard::InvTonemap(color, 1.0 / MaxBrightness);
 }
 
 float3 tonemap(float3 color)
@@ -876,7 +876,7 @@ float3 tonemap(float3 color)
 	if (MagicMode)
 		return color;
 
-	return Reinhard(color);
+	return Reinhard::Tonemap(color);
 }
 
 //#endregion
@@ -1190,7 +1190,7 @@ float4 BlendPS(BlendPassParams p) : SV_TARGET
 		exposure = lerp(1.0, exposure, AdaptAmount);
 
 		if (MagicMode)
-			bloom.rgb = Uncharted2Tonemap(bloom.rgb * exposure * 0.1);
+			bloom.rgb = Uncharted2Filmic::Tonemap(bloom.rgb * exposure * 0.1);
 
 		switch (AdaptMode)
 		{
@@ -1205,7 +1205,7 @@ float4 BlendPS(BlendPassParams p) : SV_TARGET
 		}
 	#else
 		if (MagicMode)
-			bloom.rgb = Uncharted2Tonemap(bloom.rgb * 10.0);
+			bloom.rgb = Uncharted2Filmic::Tonemap(bloom.rgb * 10.0);
 
 		color.rgb = blend_bloom(color.rgb, bloom.rgb);
 	#endif

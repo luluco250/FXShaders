@@ -3,57 +3,54 @@
 namespace FXShaders
 {
 
-/**
- * Standard Reinhard tonemapping formula.
- *
- * @param color The color to apply tonemapping to.
- */
-float3 Reinhard(float3 color)
+namespace Reinhard
 {
-	return color / (1.0 + color);
+	/**
+	* Standard Reinhard tonemapping formula.
+	*
+	* @param color The color to apply tonemapping to.
+	*/
+	float3 Tonemap(float3 color)
+	{
+		return color / (1.0 + color);
+	}
+
+	/**
+	* Inverse of the standard Reinhard tonemapping formula.
+	*
+	* @param color The color to apply inverse tonemapping to.
+	* @param w The inverse/reciprocal of the maximum brightness to be
+	*          generated.
+	*          Sample parameter: rcp(100.0)
+	*/
+	float3 InvTonemap(float3 color, float w)
+	{
+		return (color / max(1.0 - color, w));
+	}
+
+	/**
+	* Modified inverse of the Reinhard tonemapping formula that only applies to
+	* the luma.
+	*
+	* @param color The color to apply inverse tonemapping to.
+	* @param w The inverse/reciprocal of the maximum brightness to be
+	*          generated.
+	*          Sample parameter: rcp(100.0)
+	*/
+	float3 InvTonemapLum(float3 color, float w)
+	{
+		float lum = max(color.r, max(color.g, color.b));
+		return color * (lum / max(1.0 - lum, w));
+	}
 }
 
-/**
- * Inverse of the standard Reinhard tonemapping formula.
- *
- * @param color The color to apply inverse tonemapping to.
- * @param inv_max The inverse/reciprocal of the maximum brightness to be
- *                generated.
- *                Sample parameter: rcp(100.0)
- */
-float3 ReinhardInv(float3 color, float inv_max)
+namespace Uncharted2Filmic
 {
-	return (color / max(1.0 - color, inv_max));
-}
-
-/**
- * Modified inverse of the Reinhard tonemapping formula that only applies to
- * the luma.
- *
- * @param color The color to apply inverse tonemapping to.
- * @param inv_max The inverse/reciprocal of the maximum brightness to be
- *                generated.
- *                Sample parameter: rcp(100.0)
- */
-float3 ReinhardInvLum(float3 color, float inv_max)
-{
-	float lum = max(color.r, max(color.g, color.b));
-	return color * (lum / max(1.0 - lum, inv_max));
-}
-
-/**
- * The standard, copy/paste Uncharted 2 filmic tonemapping formula.
- *
- * @param color The color to apply tonemapping to.
- * @param exposure The amount of exposure to be applied to the color during
- *                 tonemapping.
- */
-float3 Uncharted2Tonemap(float3 color) {
-    // Shoulder strength.
+	// Shoulder strength.
 	static const float A = 0.15;
 
 	// Linear strength.
-    static const float B = 0.50;
+	static const float B = 0.50;
 
 	// Linear angle.
 	static const float C = 0.10;
@@ -67,23 +64,26 @@ float3 Uncharted2Tonemap(float3 color) {
 	// Toe denominator.
 	static const float F = 0.30;
 
-	// Linear white point value.
-	static const float W = 11.2;
+	float3 Tonemap(float3 color)
+	{
+		color =
+		(
+			(color * (A * color + C * B) + D * E) /
+			(color * (A * color + B) + D * F)
+		) - E / F;
 
-    static const float White =
-		1.0 / ((
-			(W * (A * W + C * B) + D * E) /
-			(W * (A * W + B) + D * F)
-		) - E / F);
+		return color;
+	}
 
-    color = (
-		(color * (A * color + C * B) + D * E) /
-		(color * (A * color + B) + D * F)
-	) - E / F;
-
-	color *= White;
-
-    return color;
+	float3 InvTonemap(float3 color)
+	{
+		return abs(
+			((B * C * F - B * E - B * F * color) -
+			sqrt(
+				pow(-B * C * F + B * E + B * F * color, 2.0) -
+				4.0 * D * (F * F) * color * (A * E + A * F * color - A * F))) /
+			(2.0 * A * (E + F * color - F)));
+	}
 }
 
 namespace BakingLabACES
@@ -125,11 +125,82 @@ namespace BakingLabACES
 
 		return color;
 	}
+
+	static const float A = 0.0245786;
+	static const float B = 0.000090537;
+	static const float C = 0.983729;
+	static const float D = 0.4329510;
+	static const float E = 0.238081;
+
+	float3 Tonemap(float3 color)
+	{
+		return saturate(
+			(color * (color + A) - B) /
+			(color * (C * color + D) + E));
+	}
+
+	float3 InvTonemap(float3 color)
+	{
+		return abs(
+			((A - D * color) -
+			sqrt(
+				pow(D * color - A, 2.0) -
+				4.0 * (C * color - 1.0) * (B + E * color))) /
+			(2.0 * (C * color - 1.0)));
+	}
 }
 
-float3 BakingLabACESTonemap(float3 color)
+namespace Lottes
 {
-	return BakingLabACES::ACESFitted(color);
+	float3 Tonemap(float3 color)
+	{
+		return color * rcp(max(color.r, max(color.g, color.b)) + 1.0);
+	}
+
+	float3 InvTonemap(float3 color, float w)
+	{
+		return color * rcp(max(w, 1.0 - max(color.r, max(color.g, color.b))));
+	}
+}
+
+namespace NarkowiczACES
+{
+	static const float A = 2.51;
+	static const float B = 0.03;
+	static const float C = 2.43;
+	static const float D = 0.59;
+	static const float E = 0.14;
+
+	float3 Tonemap(float3 color)
+	{
+		return saturate(
+			(color * (A * color + B)) / (color * (C * color + D) + E));
+	}
+
+	float3 InvTonemap(float3 color)
+	{
+		return
+			((D * color - B) +
+			sqrt(
+				4.0 * A * E * color + B * B -
+				2.0 * B * D * color -
+				4.0 * C * E * color * color +
+				D * D * color * color)) /
+			(2.0 * (A - C * color));
+	}
+}
+
+namespace Unreal3
+{
+	float3 Tonemap(float3 color)
+	{
+		return color / (color + 0.155) * 1.019;
+	}
+
+	float3 InvTonemap(float3 color, float w)
+	{
+		return (color * -0.155) / (max(color, w) - 1.019);
+	}
 }
 
 } // Namespace.
