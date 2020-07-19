@@ -33,6 +33,10 @@
 #define MAGIC_HDR_SRGB_OUTPUT 1
 #endif
 
+#ifndef MAGIC_HDR_ENABLE_ADAPTATION
+#define MAGIC_HDR_ENABLE_ADAPTATION 0
+#endif
+
 //#endregion
 
 namespace FXShaders
@@ -43,15 +47,6 @@ namespace FXShaders
 static const int2 DownsampleAmount = MAGIC_HDR_DOWNSAMPLE;
 
 static const int BlurSamples = MAGIC_HDR_BLUR_SAMPLES;
-
-static const int DitherPatternSize = 4;
-static const int DitherPattern[DitherPatternSize * DitherPatternSize] =
-{
-	0, 8, 2, 10,
-	12, 4, 14, 6,
-	3, 11, 1, 9,
-	15, 7, 13, 5
-};
 
 static const int
 	InvTonemap_Reinhard = 0,
@@ -104,23 +99,6 @@ FXSHADERS_HELP(
 	"  Leave at 1x for maximum detail, 2x or 4x should still be fine.\n"
 	"  Values too high may introduce flickering.\n"
 );
-
-uniform float Whitepoint
-<
-	ui_category = "Tonemapping";
-	ui_category_closed = true;
-	ui_label = "Whitepoint";
-	ui_tooltip =
-		"The whitepoint of the HDR image.\n"
-		"Anything with this brightness is pure white.\n"
-		"It controls how bright objects are perceived after inverse "
-		"tonemapping, with higher values leading to a brighter bloom effect.\n"
-		"\nDefault: 2";
-	ui_type = "slider";
-	ui_min = 1;
-	ui_max = 10;
-	ui_step = 1;
-> = 2;
 
 uniform float InputExposure
 <
@@ -177,29 +155,41 @@ uniform float BloomAmount
 <
 	ui_category = "Bloom";
 	ui_category_closed = true;
-	ui_label = "Bloom Amount";
+	ui_label = "Amount";
 	ui_tooltip =
-		"Amount of bloom to apply to the image.\n"
+		"The amount of bloom to apply to the image.\n"
 		"\nDefault: 0.2";
 	ui_type = "slider";
 	ui_min = 0.0;
 	ui_max = 1.0;
 > = 0.2;
 
-uniform float WhitepointScale
+uniform float BloomBrightness
 <
 	ui_category = "Bloom";
-	ui_label = "Whitepoint Scale";
+	ui_label = "Brightness";
 	ui_tooltip =
-		"This option determines how much the bloom amount is scaled by the "
-		"whitepoint value.\n"
-		"At 0.0 no scale is applied.\n"
-		"At 1.0 the amount is divided by the whitepoint.\n"
-		"\nDefault: 0.0";
+		"This value is used to multiply the bloom texture brightness.\n"
+		"This is different from the amount in it directly affects the "
+		"brightness, rather than acting as a percentage of blending between "
+		"the HDR color and the bloom color.\n"
+		"\nDefault: 1.0";
+	ui_type = "slider";
+	ui_min = 1.0;
+	ui_max = 5.0;
+> = 1.0;
+
+uniform float BloomSaturation
+<
+	ui_category = "Bloom";
+	ui_label = "Saturation";
+	ui_tooltip =
+		"Determines the saturation of bloom.\n"
+		"\nDefault: 1.0";
 	ui_type = "slider";
 	ui_min = 0.0;
-	ui_max = 1.0;
-> = 0.0;
+	ui_max = 2.0;
+> = 1.0;
 
 uniform float BlurSize
 <
@@ -216,29 +206,42 @@ uniform float BlurSize
 	ui_max = 1.0;
 > = 1.0;
 
-uniform float Mean
+uniform float BlendingAmount
 <
 	ui_category = "Bloom - Advanced";
-	ui_label = "Distribution Mean";
+	ui_label = "Blending Amount";
 	ui_tooltip =
-		"Determines the "
-		"\nDefault: 0.0";
+		"How much to blend the various bloom textures used internally.\n"
+		"Reducing this value will make the bloom more uniform, with less "
+		"variation.\n"
+		"\nDefault: 1.0";
 	ui_type = "slider";
-	ui_min = 0.0;
+	ui_min = 0.1;
 	ui_max = 1.0;
-> = 0.0;
+> = 1.0;
 
-uniform float Variance
+uniform float BlendingBase
 <
 	ui_category = "Bloom - Advanced";
-	ui_label = "Distribution Variance";
+	ui_label = "Blending Base";
 	ui_tooltip =
-		""
+		"Determines the base bloom size when blending.\n"
+		"It's more effective with a lower Blending Amount.\n"
 		"\nDefault: 1.0";
 	ui_type = "slider";
 	ui_min = 0.0;
 	ui_max = 1.0;
 > = 1.0;
+
+uniform bool ShowOnlyBloom
+<
+	ui_category = "Debug";
+	ui_category_closed = true;
+	ui_label = "Show Only Bloom";
+	ui_tooltip =
+		"Displays the bloom texture alone.\n"
+		"\nDefault: Off";
+> = false;
 
 //#endregion
 
@@ -280,59 +283,38 @@ DEF_DOWNSAMPLED_TEX(Bloom4, 16);
 DEF_DOWNSAMPLED_TEX(Bloom5, 32);
 DEF_DOWNSAMPLED_TEX(Bloom6, 64);
 
+#if MAGIC_HDR_ENABLE_ADAPTATION
+
+texture
+
+#endif
+
 //#endregion
 
 //#region Functions
 
-float GetWhitepoint()
-{
-	float w = max(Whitepoint, FloatEpsilon);
-	w = exp2(w);
-
-	return w;
-}
-
-float3 ApplyDither(float3 color, float2 uv)
-{
-	int2 pos = uv * GetResolution();
-	pos %= DitherPatternSize;
-
-	float value = DitherPattern[pos.x * DitherPatternSize + pos.y];
-	value /= DitherPatternSize * DitherPatternSize;
-
-	//color *= 1.0 + (value - 0.5) * 2.0;
-	color *= value + value;
-
-	// float noise = GetRandom(uv);
-	// noise = 1.0 + (noise * 2.0 - 1.0) * 0.1;
-	// color *= noise;
-
-	return color;
-}
 
 float3 ApplyInverseTonemap(float3 color, float2 uv)
 {
-	float w = rcp(GetWhitepoint());
-
 	switch (InvTonemap)
 	{
 		case InvTonemap_Reinhard:
-			color = Reinhard::InvTonemap(color, w);
+			color = Tonemap::Reinhard::Inverse(color);
 			break;
 		case InvTonemap_Lottes:
-			color = Lottes::InvTonemap(color, w);
+			color = Tonemap::Lottes::Inverse(color);
 			break;
 		case InvTonemap_Unreal3:
-			color = Unreal3::InvTonemap(color, w);
+			color = Tonemap::Unreal3::Inverse(color);
 			break;
 		case InvTonemap_NarkowiczACES:
-			color = NarkowiczACES::InvTonemap(color);
+			color = Tonemap::NarkowiczACES::Inverse(color);
 			break;
 		case InvTonemap_Uncharted2Filmic:
-			color = Uncharted2Filmic::InvTonemap(color);
+			color = Tonemap::Uncharted2Filmic::Inverse(color);
 			break;
 		case InvTonemap_BakingLabACES:
-			color = BakingLabACES::InvTonemap(color);
+			color = Tonemap::BakingLabACES::Inverse(color);
 			break;
 	}
 
@@ -349,22 +331,22 @@ float3 ApplyTonemap(float3 color, float2 uv)
 	switch (Tonemap)
 	{
 		case Tonemap_Reinhard:
-			color = Reinhard::Tonemap(color * exposure);
+			color = Tonemap::Reinhard::Apply(color * exposure);
 			break;
 		case Tonemap_Lottes:
-			color = Lottes::Tonemap(color * exposure);
+			color = Tonemap::Lottes::Apply(color * exposure);
 			break;
 		case Tonemap_Unreal3:
-			color = Unreal3::Tonemap(color * exposure);
+			color = Tonemap::Unreal3::Apply(color * exposure);
 			break;
 		case Tonemap_NarkowiczACES:
-			color = NarkowiczACES::Tonemap(color * exposure);
+			color = Tonemap::NarkowiczACES::Apply(color * exposure);
 			break;
 		case Tonemap_Uncharted2Filmic:
-			color = Uncharted2Filmic::Tonemap(color * exposure);
+			color = Tonemap::Uncharted2Filmic::Apply(color * exposure);
 			break;
 		case Tonemap_BakingLabACES:
-			color = BakingLabACES::Tonemap(color * exposure);
+			color = Tonemap::BakingLabACES::Apply(color * exposure);
 			break;
 	}
 
@@ -392,9 +374,17 @@ float4 InverseTonemapPS(
 	float2 uv : TEXCOORD) : SV_TARGET
 {
 	float4 color = tex2D(Color, uv);
+
+	float saturation = (BloomSaturation > 1.0)
+		? pow(abs(BloomSaturation), 2.0)
+		: BloomSaturation;
+
+	color.rgb = saturate(ApplySaturation(color.rgb, saturation));
+
 	color.rgb = ApplyInverseTonemap(color.rgb, uv);
 
 	// TODO: Saturation and other color filtering options?
+	color.rgb *= exp(BloomBrightness);
 
 	return color;
 }
@@ -429,28 +419,23 @@ float4 TonemapPS(
 	float4 color = tex2D(Color, uv);
 	color.rgb = ApplyInverseTonemap(color.rgb, uv);
 
-	float mean = Mean * 7;
-	float vari = (Variance + 0.1) * 7;
+	float mean = BlendingBase * 7;
+	float variance = BlendingAmount * 7;
 
 	float4 bloom =
-		tex2D(Bloom0, uv) * NormalDistribution(1, mean, vari) +
-		tex2D(Bloom1, uv) * NormalDistribution(2, mean, vari) +
-		tex2D(Bloom2, uv) * NormalDistribution(3, mean, vari) +
-		tex2D(Bloom3, uv) * NormalDistribution(4, mean, vari) +
-		tex2D(Bloom4, uv) * NormalDistribution(5, mean, vari) +
-		tex2D(Bloom5, uv) * NormalDistribution(6, mean, vari) +
-		tex2D(Bloom6, uv) * NormalDistribution(7, mean, vari);
+		tex2D(Bloom0, uv) * NormalDistribution(1, mean, variance) +
+		tex2D(Bloom1, uv) * NormalDistribution(2, mean, variance) +
+		tex2D(Bloom2, uv) * NormalDistribution(3, mean, variance) +
+		tex2D(Bloom3, uv) * NormalDistribution(4, mean, variance) +
+		tex2D(Bloom4, uv) * NormalDistribution(5, mean, variance) +
+		tex2D(Bloom5, uv) * NormalDistribution(6, mean, variance) +
+		tex2D(Bloom6, uv) * NormalDistribution(7, mean, variance);
 
 	bloom /= 7;
 
-	float amount = BloomAmount;
-
-	float w = GetWhitepoint();
-
-	amount = lerp(amount, amount / w, WhitepointScale);
-	amount = log10(amount + 1.0);
-
-	color.rgb = lerp(color.rgb, bloom.rgb, amount);
+	color.rgb = ShowOnlyBloom
+		? bloom.rgb
+		: lerp(color.rgb, bloom.rgb, log10(BloomAmount + 1.0));
 
 	color.rgb = ApplyTonemap(color.rgb, uv);
 

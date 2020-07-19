@@ -6,6 +6,7 @@
 #include "FXShaders/Blending.fxh"
 #include "FXShaders/Common.fxh"
 #include "FXShaders/Convolution.fxh"
+#include "FXShaders/Dithering.fxh"
 #include "FXShaders/Tonemap.fxh"
 
 //#endregion
@@ -74,6 +75,10 @@
 #endif
 
 #define NEO_BLOOM_NEEDS_LAST (NEO_BLOOM_GHOSTING || NEO_BLOOM_DEPTH && NEO_BLOOM_DEPTH_ANTI_FLICKER)
+
+#ifndef NEO_BLOOM_DITHERING
+#define NEO_BLOOM_DITHERING 0
+#endif
 
 //#endregion
 
@@ -696,6 +701,24 @@ uniform int BloomTextureToShow
 
 #endif
 
+#if NEO_BLOOM_DITHERING
+
+uniform float DitherAmount
+<
+	__UNIFORM_DRAG_FLOAT1
+
+	ui_label = "Amount";
+	ui_tooltip =
+		"Amount of dithering to apply to the bloom.\n"
+		"\nDefault: 0.1";
+	ui_category = "Dithering";
+	ui_min = 0.0;
+	ui_max = 1.0;
+	ui_step = 0.001;
+> = 0.1;
+
+#endif
+
 #if NEO_BLOOM_ADAPT
 
 uniform float FrameTime <source = "frametime";>;
@@ -860,7 +883,7 @@ float3 inv_tonemap_bloom(float3 color)
 	if (MagicMode)
 		return pow(abs(color), MaxBrightness * 0.01);
 
-	return Reinhard::InvTonemapLum(color, 1.0 / MaxBrightness);
+	return Tonemap::Reinhard::InverseOldLum(color, 1.0 / MaxBrightness);
 }
 
 float3 inv_tonemap(float3 color)
@@ -868,7 +891,7 @@ float3 inv_tonemap(float3 color)
 	if (MagicMode)
 		return color;
 
-	return Reinhard::InvTonemap(color, 1.0 / MaxBrightness);
+	return Tonemap::Reinhard::InverseOld(color, 1.0 / MaxBrightness);
 }
 
 float3 tonemap(float3 color)
@@ -876,7 +899,7 @@ float3 tonemap(float3 color)
 	if (MagicMode)
 		return color;
 
-	return Reinhard::Tonemap(color);
+	return Tonemap::Reinhard::Apply(color);
 }
 
 //#endregion
@@ -1109,6 +1132,13 @@ float4 BlendPS(BlendPassParams p) : SV_TARGET
 		float4 bloom = JoinBloomsPS(p.p, uv);
 	#endif
 
+	#if NEO_BLOOM_DITHERING
+		bloom.rgb = FXShaders::Dithering::Ordered16::Apply(
+			bloom.rgb,
+			uv,
+			DitherAmount);
+	#endif
+
 	#if NEO_BLOOM_LENS_DIRT
 		float4 dirt = tex2D(LensDirt, p.lens_uv);
 		bloom.rgb = mad(dirt.rgb, bloom.rgb * LensDirtAmount, bloom.rgb);
@@ -1190,7 +1220,10 @@ float4 BlendPS(BlendPassParams p) : SV_TARGET
 		exposure = lerp(1.0, exposure, AdaptAmount);
 
 		if (MagicMode)
-			bloom.rgb = Uncharted2Filmic::Tonemap(bloom.rgb * exposure * 0.1);
+		{
+			bloom.rgb = Tonemap::Uncharted2Filmic::Apply(
+				bloom.rgb * exposure * 0.1);
+		}
 
 		switch (AdaptMode)
 		{
@@ -1205,7 +1238,7 @@ float4 BlendPS(BlendPassParams p) : SV_TARGET
 		}
 	#else
 		if (MagicMode)
-			bloom.rgb = Uncharted2Filmic::Tonemap(bloom.rgb * 10.0);
+			bloom.rgb = Tonemap::Uncharted2Filmic::Apply(bloom.rgb * 10.0);
 
 		color.rgb = blend_bloom(color.rgb, bloom.rgb);
 	#endif

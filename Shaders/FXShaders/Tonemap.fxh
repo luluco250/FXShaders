@@ -1,6 +1,6 @@
 #pragma once
 
-namespace FXShaders
+namespace FXShaders { namespace Tonemap
 {
 
 namespace Reinhard
@@ -10,7 +10,7 @@ namespace Reinhard
 	*
 	* @param color The color to apply tonemapping to.
 	*/
-	float3 Tonemap(float3 color)
+	float3 Apply(float3 color)
 	{
 		return color / (1.0 + color);
 	}
@@ -19,13 +19,24 @@ namespace Reinhard
 	* Inverse of the standard Reinhard tonemapping formula.
 	*
 	* @param color The color to apply inverse tonemapping to.
+	*/
+	float3 Inverse(float3 color)
+	{
+		return -(color / min(color - 1.0, -0.1));
+	}
+
+	/**
+	* Incorrect inverse of the standard Reinhard tonemapping formula.
+	* This is only here for NeoBloom right now.
+	*
+	* @param color The color to apply inverse tonemapping to.
 	* @param w The inverse/reciprocal of the maximum brightness to be
 	*          generated.
 	*          Sample parameter: rcp(100.0)
 	*/
-	float3 InvTonemap(float3 color, float w)
+	float3 InverseOld(float3 color, float w)
 	{
-		return (color / max(1.0 - color, w));
+		return color / max(1.0 - color, w);
 	}
 
 	/**
@@ -37,7 +48,7 @@ namespace Reinhard
 	*          generated.
 	*          Sample parameter: rcp(100.0)
 	*/
-	float3 InvTonemapLum(float3 color, float w)
+	float3 InverseOldLum(float3 color, float w)
 	{
 		float lum = max(color.r, max(color.g, color.b));
 		return color * (lum / max(1.0 - lum, w));
@@ -64,7 +75,7 @@ namespace Uncharted2Filmic
 	// Toe denominator.
 	static const float F = 0.30;
 
-	float3 Tonemap(float3 color)
+	float3 Apply(float3 color)
 	{
 		color =
 		(
@@ -75,7 +86,7 @@ namespace Uncharted2Filmic
 		return color;
 	}
 
-	float3 InvTonemap(float3 color)
+	float3 Inverse(float3 color)
 	{
 		return abs(
 			((B * C * F - B * E - B * F * color) -
@@ -132,14 +143,14 @@ namespace BakingLabACES
 	static const float D = 0.4329510;
 	static const float E = 0.238081;
 
-	float3 Tonemap(float3 color)
+	float3 Apply(float3 color)
 	{
 		return saturate(
 			(color * (color + A) - B) /
 			(color * (C * color + D) + E));
 	}
 
-	float3 InvTonemap(float3 color)
+	float3 Inverse(float3 color)
 	{
 		return abs(
 			((A - D * color) -
@@ -152,14 +163,14 @@ namespace BakingLabACES
 
 namespace Lottes
 {
-	float3 Tonemap(float3 color)
+	float3 Apply(float3 color)
 	{
 		return color * rcp(max(color.r, max(color.g, color.b)) + 1.0);
 	}
 
-	float3 InvTonemap(float3 color, float w)
+	float3 Inverse(float3 color)
 	{
-		return color * rcp(max(w, 1.0 - max(color.r, max(color.g, color.b))));
+		return color * rcp(max(1.0 - max(color.r, max(color.g, color.b)), 0.01));
 	}
 }
 
@@ -171,13 +182,13 @@ namespace NarkowiczACES
 	static const float D = 0.59;
 	static const float E = 0.14;
 
-	float3 Tonemap(float3 color)
+	float3 Apply(float3 color)
 	{
 		return saturate(
 			(color * (A * color + B)) / (color * (C * color + D) + E));
 	}
 
-	float3 InvTonemap(float3 color)
+	float3 Inverse(float3 color)
 	{
 		return
 			((D * color - B) +
@@ -192,15 +203,15 @@ namespace NarkowiczACES
 
 namespace Unreal3
 {
-	float3 Tonemap(float3 color)
+	float3 Apply(float3 color)
 	{
 		return color / (color + 0.155) * 1.019;
 	}
 
-	float3 InvTonemap(float3 color, float w)
+	float3 Inverse(float3 color)
 	{
-		return (color * -0.155) / (max(color, w) - 1.019);
+		return (color * -0.155) / (max(color, 0.01) - 1.019);
 	}
 }
 
-} // Namespace.
+}} // Namespace.
