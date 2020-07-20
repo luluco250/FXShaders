@@ -1,5 +1,6 @@
 //#region Includes
 
+#include "FXShaders/Canvas.fxh"
 #include "FXShaders/Common.fxh"
 #include "FXShaders/Convolution.fxh"
 #include "FXShaders/Math.fxh"
@@ -47,6 +48,8 @@ namespace FXShaders
 static const int2 DownsampleAmount = MAGIC_HDR_DOWNSAMPLE;
 
 static const int BlurSamples = MAGIC_HDR_BLUR_SAMPLES;
+
+static const float2 AdaptFocusPointDebugSize = 10.0;
 
 static const int
 	InvTonemap_Reinhard = 0,
@@ -233,13 +236,106 @@ uniform float BlendingBase
 	ui_max = 1.0;
 > = 1.0;
 
-uniform bool ShowOnlyBloom
+#if MAGIC_HDR_ENABLE_ADAPTATION
+
+uniform float AdaptTime
+<
+	ui_category = "Adaptation";
+	ui_category_closed = true;
+	ui_label = "Delay";
+	ui_tooltip =
+		"Determines the time in seconds it takes for adaptation to transition "
+		"between the previous value and the next.\n"
+		"\nDefault: 1.0";
+	ui_type = "drag";
+	ui_min = 0.0;
+	ui_max = 10.0;
+	ui_step = 0.001;
+> = 1.0;
+
+uniform float2 AdaptMinMax
+<
+	ui_category = "Adaptation";
+	ui_label = "Range";
+	ui_tooltip =
+		"Determines the minimum and maximum values for adaptation, "
+		"respectively.\n"
+		"Increasing the minimum will reduce how bright the image can become.\n"
+		"Decreasing the maximum will reduce how dark the image can become.\n"
+		"\nDefault: 0.0 1.0";
+	ui_type = "drag";
+	ui_min = 0.0;
+	ui_max = 3.0;
+	ui_step = 0.001;
+> = float2(0.0, 1.0);
+
+uniform float AdaptSensitivity
+<
+	ui_category = "Adaptation - Advanced";
+	ui_category_closed = true;
+	ui_label = "Sensitivity";
+	ui_tooltip =
+		"Determines the sensitivity of adaptation towards bright objects.\n"
+		"\nDefault: 1.0";
+	ui_type = "slider";
+	ui_min = 0.0;
+	ui_max = 2.0;
+> = 1.0;
+
+uniform float AdaptPrecision
+<
+	ui_category = "Adaptation - Advanced";
+	ui_label = "Precision";
+	ui_tooltip =
+		"Determines which parts of the image influence adaptation more.\n"
+		"At 0.0, adaptation is influenced by the entire image equally.\n"
+		"At 1.0, adaptation will be influenced by objects closer to the Focus "
+		"Point more than the rest of the scene.\n"
+		"\nDefault: 0.0";
+	ui_type = "slider";
+	ui_min = 0.0;
+	ui_max = 1.0;
+> = 0.0;
+
+uniform float2 AdaptPoint
+<
+	ui_category = "Adaptation - Advanced";
+	ui_label = "Focus Point";
+	ui_tooltip =
+		"Determines the point on the screen that is used for determining the "
+		"adaptation value.\n"
+		"The first value determines the horizontal position, from left to "
+		"right.\n"
+		"The second value determines the vertical position, from top to "
+		"bottom.\n"
+		"(0.5, 0.5) is the screen center.\n"
+		"\nDefault: 0.5 0.5";
+	ui_type = "drag";
+	ui_min = 0.0;
+	ui_max = 1.0;
+	ui_step = 0.001;
+> = 0.5;
+
+uniform float FrameTime <source = "frametime";>;
+
+#endif
+
+uniform bool ShowBloom
 <
 	ui_category = "Debug";
 	ui_category_closed = true;
-	ui_label = "Show Only Bloom";
+	ui_label = "Show Bloom";
 	ui_tooltip =
-		"Displays the bloom texture alone.\n"
+		"Displays the bloom texture.\n"
+		"\nDefault: Off";
+> = false;
+
+uniform bool ShowAdapt
+<
+	ui_category = "Debug";
+	ui_label = "Show Adaptation";
+	ui_tooltip =
+		"Displays the texture used for adaptation and the focus point.\n"
 		"\nDefault: Off";
 > = false;
 
@@ -258,12 +354,13 @@ sampler Color
 	#endif
 };
 
-#define DEF_DOWNSAMPLED_TEX(name, downscale) \
+#define DEF_DOWNSAMPLED_TEX(name, downscale, maxMip) \
 texture name##Tex <pooled = true;> \
 { \
 	Width = BUFFER_WIDTH / DownsampleAmount.x / downscale; \
 	Height = BUFFER_HEIGHT / DownsampleAmount.y / downscale; \
 	Format = RGBA16F; \
+	MipLevels = maxMip; \
 }; \
 \
 sampler name \
@@ -272,20 +369,38 @@ sampler name \
 }
 
 // This texture is used as a sort of "HDR backbuffer".
-DEF_DOWNSAMPLED_TEX(Temp, 1);
+DEF_DOWNSAMPLED_TEX(Temp, 1, 1);
 
 // These are the textures in which the many bloom LODs are stored.
-DEF_DOWNSAMPLED_TEX(Bloom0, 1);
-DEF_DOWNSAMPLED_TEX(Bloom1, 2);
-DEF_DOWNSAMPLED_TEX(Bloom2, 4);
-DEF_DOWNSAMPLED_TEX(Bloom3, 8);
-DEF_DOWNSAMPLED_TEX(Bloom4, 16);
-DEF_DOWNSAMPLED_TEX(Bloom5, 32);
-DEF_DOWNSAMPLED_TEX(Bloom6, 64);
+DEF_DOWNSAMPLED_TEX(Bloom0, 1, 1);
+DEF_DOWNSAMPLED_TEX(Bloom1, 2, 1);
+DEF_DOWNSAMPLED_TEX(Bloom2, 4, 1);
+DEF_DOWNSAMPLED_TEX(Bloom3, 8, 1);
+DEF_DOWNSAMPLED_TEX(Bloom4, 16, 1);
+DEF_DOWNSAMPLED_TEX(Bloom5, 32, 1);
+DEF_DOWNSAMPLED_TEX(Bloom6, 64, 10);
 
 #if MAGIC_HDR_ENABLE_ADAPTATION
 
-texture
+texture AdaptTex
+{
+	Format = R32F;
+};
+
+sampler Adapt
+{
+	Texture = AdaptTex;
+};
+
+texture LastAdaptTex
+{
+	Format = R32F;
+};
+
+sampler LastAdapt
+{
+	Texture = LastAdaptTex;
+};
 
 #endif
 
@@ -325,8 +440,11 @@ float3 ApplyInverseTonemap(float3 color, float2 uv)
 
 float3 ApplyTonemap(float3 color, float2 uv)
 {
-	// TODO: Implement adaptation.
 	float exposure = exp(Exposure);
+
+	#if MAGIC_HDR_ENABLE_ADAPTATION
+		exposure /= tex2Dfetch(Adapt, 0).x;
+	#endif
 
 	switch (Tonemap)
 	{
@@ -364,6 +482,21 @@ float4 Blur(sampler sp, float2 uv, float2 dir)
 
 	return color;
 }
+
+#if MAGIC_HDR_ENABLE_ADAPTATION
+
+// Get the lowest resolution mipmap level and then reduce it by the
+// precision value.
+float GetAdaptMipLevel()
+{
+	float2 res = GetResolution() / 64;
+	float mip = log2(max(res.x, res.y)) + 1.0;
+	mip *= 1.0 - AdaptPrecision;
+
+	return mip;
+}
+
+#endif
 
 //#endregion
 
@@ -412,10 +545,69 @@ DEF_BLUR_SHADER(8, 9, Bloom3, 16)
 DEF_BLUR_SHADER(10, 11, Bloom4, 32)
 DEF_BLUR_SHADER(12, 13, Bloom5, 64)
 
+#if MAGIC_HDR_ENABLE_ADAPTATION
+
+float4 CalcAdaptPS(
+	float4 p : SV_POSITION,
+	float2 uv : TEXCOORD) : SV_TARGET
+{
+	float mip = GetAdaptMipLevel();
+	float3 color = tex2Dlod(Bloom6, float4(AdaptPoint, 0.0, mip)).rgb;
+	float adapt = GetLumaLinear(color);
+
+	adapt = lerp(0.5, adapt, AdaptSensitivity);
+
+	float2 minMax = AdaptMinMax;
+	minMax = (minMax.x > minMax.y) ? minMax.yx : minMax;
+
+	adapt = clamp(adapt, max(minMax.x, 0.001), minMax.y);
+
+	if (AdaptTime > 0.001)
+	{
+		float last = tex2Dfetch(LastAdapt, 0).x;
+		float dt = FrameTime * 0.001;
+
+		adapt = lerp(last, adapt, saturate(dt / max(AdaptTime, 0.001)));
+	}
+
+	return adapt;
+}
+
+float4 SaveAdaptPS(
+	float4 p : SV_POSITION,
+	float2 uv : TEXCOORD) : SV_TARGET
+{
+	return tex2Dfetch(Adapt, 0);
+}
+
+#endif
+
 float4 TonemapPS(
 	float4 p : SV_POSITION,
 	float2 uv : TEXCOORD) : SV_TARGET
 {
+	if (ShowAdapt)
+	{
+		float mip = GetAdaptMipLevel();
+		float4 color = tex2Dlod(Bloom6, float4(uv, 0.0, mip));
+		color.rgb = lerp(0.5, color.rgb, AdaptSensitivity);
+
+		float2 res = GetResolution();
+		float2 coord = uv * res;
+		float2 pointPos = AdaptPoint * res;
+
+		float4 pointColor = float4(1.0 - color.rgb, color.a);
+		pointColor.rgb = (abs(pointColor.rgb - color.rgb) < 0.1)
+			? pointColor.rgb * 1.5
+			: pointColor.rgb;
+
+		float4 rect = ConvertToRect(pointPos, AdaptFocusPointDebugSize);
+
+		FillRect(color, coord, rect, pointColor);
+
+		return color;
+	}
+
 	float4 color = tex2D(Color, uv);
 	color.rgb = ApplyInverseTonemap(color.rgb, uv);
 
@@ -433,7 +625,7 @@ float4 TonemapPS(
 
 	bloom /= 7;
 
-	color.rgb = ShowOnlyBloom
+	color.rgb = ShowBloom
 		? bloom.rgb
 		: lerp(color.rgb, bloom.rgb, log10(BloomAmount + 1.0));
 
@@ -476,6 +668,21 @@ technique MagicHDR <ui_tooltip = "FXShaders - Bloom and tonemapping effect.";>
 	DEF_BLUR_PASS(4, 8, 9)
 	DEF_BLUR_PASS(5, 10, 11)
 	DEF_BLUR_PASS(6, 12, 13)
+
+	#if MAGIC_HDR_ENABLE_ADAPTATION
+		pass CalcAdapt
+		{
+			VertexShader = ScreenVS;
+			PixelShader = CalcAdaptPS;
+			RenderTarget = AdaptTex;
+		}
+		pass SaveAdapt
+		{
+			VertexShader = ScreenVS;
+			PixelShader = SaveAdaptPS;
+			RenderTarget = LastAdaptTex;
+		}
+	#endif
 
 	pass Tonemap
 	{
