@@ -330,6 +330,8 @@ uniform bool ShowBloom
 		"\nDefault: Off";
 > = false;
 
+#if MAGIC_HDR_ENABLE_ADAPTATION
+
 uniform bool ShowAdapt
 <
 	ui_category = "Debug";
@@ -338,6 +340,8 @@ uniform bool ShowAdapt
 		"Displays the texture used for adaptation and the focus point.\n"
 		"\nDefault: Off";
 > = false;
+
+#endif
 
 //#endregion
 
@@ -586,27 +590,29 @@ float4 TonemapPS(
 	float4 p : SV_POSITION,
 	float2 uv : TEXCOORD) : SV_TARGET
 {
-	if (ShowAdapt)
-	{
-		float mip = GetAdaptMipLevel();
-		float4 color = tex2Dlod(Bloom6, float4(uv, 0.0, mip));
-		color.rgb = lerp(0.5, color.rgb, AdaptSensitivity);
+	#if MAGIC_HDR_ENABLE_ADAPTATION
+		if (ShowAdapt)
+		{
+			float mip = GetAdaptMipLevel();
+			float4 color = tex2Dlod(Bloom6, float4(uv, 0.0, mip));
+			color.rgb = lerp(0.5, color.rgb, AdaptSensitivity);
 
-		float2 res = GetResolution();
-		float2 coord = uv * res;
-		float2 pointPos = AdaptPoint * res;
+			float2 res = GetResolution();
+			float2 coord = uv * res;
+			float2 pointPos = AdaptPoint * res;
 
-		float4 pointColor = float4(1.0 - color.rgb, color.a);
-		pointColor.rgb = (abs(pointColor.rgb - color.rgb) < 0.1)
-			? pointColor.rgb * 1.5
-			: pointColor.rgb;
+			float4 pointColor = float4(1.0 - color.rgb, color.a);
+			pointColor.rgb = (abs(pointColor.rgb - color.rgb) < 0.1)
+				? pointColor.rgb * 1.5
+				: pointColor.rgb;
 
-		float4 rect = ConvertToRect(pointPos, AdaptFocusPointDebugSize);
+			float4 rect = ConvertToRect(pointPos, AdaptFocusPointDebugSize);
 
-		FillRect(color, coord, rect, pointColor);
+			FillRect(color, coord, rect, pointColor);
 
-		return color;
-	}
+			return color;
+		}
+	#endif
 
 	float4 color = tex2D(Color, uv);
 	color.rgb = ApplyInverseTonemap(color.rgb, uv);
