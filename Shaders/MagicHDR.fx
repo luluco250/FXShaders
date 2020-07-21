@@ -382,7 +382,15 @@ DEF_DOWNSAMPLED_TEX(Bloom2, 4, 1);
 DEF_DOWNSAMPLED_TEX(Bloom3, 8, 1);
 DEF_DOWNSAMPLED_TEX(Bloom4, 16, 1);
 DEF_DOWNSAMPLED_TEX(Bloom5, 32, 1);
-DEF_DOWNSAMPLED_TEX(Bloom6, 64, 10);
+
+#if MAGIC_HDR_ENABLE_ADAPTATION
+	DEF_DOWNSAMPLED_TEX(
+		Bloom6,
+		64,
+		FXSHADERS_GET_MAX_MIP(BUFFER_WIDTH / 64, BUFFER_HEIGHT / 64));
+#else
+	DEF_DOWNSAMPLED_TEX(Bloom6, 64, 1);
+#endif
 
 #if MAGIC_HDR_ENABLE_ADAPTATION
 
@@ -487,21 +495,6 @@ float4 Blur(sampler sp, float2 uv, float2 dir)
 	return color;
 }
 
-#if MAGIC_HDR_ENABLE_ADAPTATION
-
-// Get the lowest resolution mipmap level and then reduce it by the
-// precision value.
-float GetAdaptMipLevel()
-{
-	float2 res = GetResolution() / 64;
-	float mip = log2(max(res.x, res.y)) + 1.0;
-	mip *= 1.0 - AdaptPrecision;
-
-	return mip;
-}
-
-#endif
-
 //#endregion
 
 //#region Shaders
@@ -555,7 +548,10 @@ float4 CalcAdaptPS(
 	float4 p : SV_POSITION,
 	float2 uv : TEXCOORD) : SV_TARGET
 {
-	float mip = GetAdaptMipLevel();
+	float mip = FXSHADERS_GET_MAX_MIP(
+		BUFFER_WIDTH / 64,
+		BUFFER_HEIGHT / 64) * AdaptPrecision;
+
 	float3 color = tex2Dlod(Bloom6, float4(AdaptPoint, 0.0, mip)).rgb;
 	float adapt = GetLumaLinear(color);
 
@@ -593,7 +589,10 @@ float4 TonemapPS(
 	#if MAGIC_HDR_ENABLE_ADAPTATION
 		if (ShowAdapt)
 		{
-			float mip = GetAdaptMipLevel();
+			float mip = FXSHADERS_GET_MAX_MIP(
+				BUFFER_WIDTH / 64,
+				BUFFER_HEIGHT / 64) * AdaptPrecision;
+
 			float4 color = tex2Dlod(Bloom6, float4(uv, 0.0, mip));
 			color.rgb = lerp(0.5, color.rgb, AdaptSensitivity);
 
