@@ -1,5 +1,6 @@
 //#region Includes
 
+#include "FXShaders/API.fxh"
 #include "FXShaders/Canvas.fxh"
 #include "FXShaders/Common.fxh"
 #include "FXShaders/Convolution.fxh"
@@ -384,17 +385,37 @@ DEF_DOWNSAMPLED_TEX(Bloom4, 16, 1);
 DEF_DOWNSAMPLED_TEX(Bloom5, 32, 1);
 
 #if MAGIC_HDR_ENABLE_ADAPTATION
-	DEF_DOWNSAMPLED_TEX(
-		Bloom6,
-		64,
-		FXSHADERS_GET_MAX_MIP(BUFFER_WIDTH / 64, BUFFER_HEIGHT / 64));
+	#if FXSHADERS_API_IS(FXSHADERS_API_OPENGL)
+		#define MAGIC_HDR_ADAPT_TEXTURE_RESOLUTION \
+			FXSHADERS_NPOT(FXSHADERS_MAX(BUFFER_WIDTH, BUFFER_HEIGHT) / 64)
+
+		texture Bloom6Tex <pooled = true;>
+		{
+			Width = MAGIC_HDR_ADAPT_TEXTURE_RESOLUTION;
+			Height = MAGIC_HDR_ADAPT_TEXTURE_RESOLUTION;
+			Format = RGBA16F;
+			MipLevels = FXSHADERS_GET_MAX_MIP(
+				MAGIC_HDR_ADAPT_TEXTURE_RESOLUTION,
+				MAGIC_HDR_ADAPT_TEXTURE_RESOLUTION);
+		};
+
+		sampler Bloom6
+		{
+			Texture = Bloom6Tex;
+		};
+	#else
+		DEF_DOWNSAMPLED_TEX(
+			Bloom6,
+			64,
+			FXSHADERS_GET_MAX_MIP(BUFFER_WIDTH / 64, BUFFER_HEIGHT / 64));
+	#endif
 #else
 	DEF_DOWNSAMPLED_TEX(Bloom6, 64, 1);
 #endif
 
 #if MAGIC_HDR_ENABLE_ADAPTATION
 
-texture AdaptTex
+texture AdaptTex <pooled = true;>
 {
 	Format = R32F;
 };
@@ -495,6 +516,15 @@ float4 Blur(sampler sp, float2 uv, float2 dir)
 	return color;
 }
 
+#if MAGIC_HDR_ENABLE_ADAPTATION
+
+float GetAdaptSensitivity()
+{
+	return log10(AdaptSensitivity + 1.0);
+}
+
+#endif
+
 //#endregion
 
 //#region Shaders
@@ -548,14 +578,23 @@ float4 CalcAdaptPS(
 	float4 p : SV_POSITION,
 	float2 uv : TEXCOORD) : SV_TARGET
 {
-	float mip = FXSHADERS_GET_MAX_MIP(
-		BUFFER_WIDTH / 64,
-		BUFFER_HEIGHT / 64) * AdaptPrecision;
+	#if FXSHADERS_API_IS(FXSHADERS_API_OPENGL)
+		float mip = FXSHADERS_GET_MAX_MIP(
+			MAGIC_HDR_ADAPT_TEXTURE_RESOLUTION,
+			MAGIC_HDR_ADAPT_TEXTURE_RESOLUTION);
+	#else
+		float mip = FXSHADERS_GET_MAX_MIP(
+			BUFFER_WIDTH / 64,
+			BUFFER_HEIGHT / 64);
+	#endif
+
+	mip *= AdaptPrecision;
 
 	float3 color = tex2Dlod(Bloom6, float4(AdaptPoint, 0.0, mip)).rgb;
 	float adapt = GetLumaLinear(color);
 
-	adapt = lerp(0.5, adapt, AdaptSensitivity);
+	// adapt = lerp(0.5, adapt, AdaptSensitivity);
+	adapt *= GetAdaptSensitivity();
 
 	float2 minMax = AdaptMinMax;
 	minMax = (minMax.x > minMax.y) ? minMax.yx : minMax;
@@ -594,7 +633,8 @@ float4 TonemapPS(
 				BUFFER_HEIGHT / 64) * AdaptPrecision;
 
 			float4 color = tex2Dlod(Bloom6, float4(uv, 0.0, mip));
-			color.rgb = lerp(0.5, color.rgb, AdaptSensitivity);
+			color.rgb *= GetAdaptSensitivity();
+			//color.rgb = lerp(0.5, color.rgb, AdaptSensitivity);
 
 			float2 res = GetResolution();
 			float2 coord = uv * res;
