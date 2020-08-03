@@ -3,6 +3,14 @@
 #include "ReShade.fxh"
 #include "ReShadeUI.fxh"
 
+#ifndef FOCAL_DOF_USE_TEX2D_IN_VS
+#define FOCAL_DOF_USE_TEX2D_IN_VS 0
+#endif
+
+#ifndef FOCAL_DOF_USE_SRGB
+#define FOCAL_DOF_USE_SRGB 0
+#endif
+
 //#endregion
 
 //#region Uniforms
@@ -55,6 +63,18 @@ uniform float FrameTime <source = "frametime";>;
 
 //#region Textures
 
+#if FOCAL_DOF_USE_SRGB
+	sampler BackBuffer
+	{
+		Texture = ReShade::BackBufferTex;
+		SRGBTexture = true;
+	};
+
+	#define BACKBUFFER BackBuffer
+#else
+	#define BACKBUFFER ReShade::BackBuffer
+#endif
+
 texture FocalDOF_Focus { Format = R32F; };
 sampler Focus { Texture = FocalDOF_Focus; };
 
@@ -73,10 +93,14 @@ void GetFocusVS(
 {
 	PostProcessVS(id, p, uv);
 	
-	float last = tex2Dfetch(LastFocus, 0).x;
-	focus = ReShade::GetLinearizedDepth(FocusPoint);
-	focus = lerp(last, focus, FrameTime / FocusTime);
-	focus = saturate(focus);
+	#if FOCAL_DOF_USE_TEX2D_IN_VS
+		float last = tex2Dfetch(LastFocus, 0).x;
+		focus = ReShade::GetLinearizedDepth(FocusPoint);
+		focus = lerp(last, focus, FrameTime / FocusTime);
+		focus = saturate(focus);
+	#else
+		focus = 0.0;
+	#endif
 }
 
 void ReadFocusVS(
@@ -86,7 +110,12 @@ void ReadFocusVS(
 	out float focus : TEXCOORD1)
 {
 	PostProcessVS(id, p, uv);
-	focus = tex2Dfetch(Focus, 0).x;
+
+	#if FOCAL_DOF_USE_TEX2D_IN_VS
+		focus = tex2Dfetch(Focus, 0).x;
+	#else
+		focus = 0.0;
+	#endif
 }
 
 float4 GetFocusPS(
@@ -94,6 +123,13 @@ float4 GetFocusPS(
 	float2 uv : TEXCOORD0,
 	float focus : TEXCOORD1) : SV_TARGET
 {
+	#if !FOCAL_DOF_USE_TEX2D_IN_VS
+		float last = tex2Dfetch(LastFocus, 0).x;
+		focus = ReShade::GetLinearizedDepth(FocusPoint);
+		focus = lerp(last, focus, FrameTime / FocusTime);
+		focus = saturate(focus);
+	#endif
+
 	return focus;
 }
 
@@ -102,6 +138,10 @@ float4 SaveFocusPS(
 	float2 uv : TEXCOORD0,
 	float focus : TEXCOORD1) : SV_TARGET
 {
+	#if !FOCAL_DOF_USE_TEX2D_IN_VS
+		focus = tex2Dfetch(Focus, 0).x;
+	#endif
+
 	return focus;
 }
 
@@ -114,7 +154,7 @@ float4 MainPS(
 	float scale = abs(depth - focus) * DofScale;
 
 	#define FETCH(off) exp(\
-		tex2D(ReShade::BackBuffer, uv + ReShade::PixelSize * off * scale))
+		tex2D(BACKBUFFER, uv + ReShade::PixelSize * off * scale))
 
 	static const float2 offsets[] =
 	{
@@ -162,6 +202,10 @@ technique FocalDOF
 	{
 		VertexShader = ReadFocusVS;
 		PixelShader = MainPS;
+		
+		#if FOCAL_DOF_USE_SRGB
+			SRGBWriteEnable = true;
+		#endif
 	}
 }
 
