@@ -1023,10 +1023,10 @@ float4 CalcAdaptPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 			gs = max(color.r, max(color.g, color.b));
 			break;
 		case 2:
-			gs = get_luma_gamma(color);
+			gs = GetLumaGamma(color);
 			break;
 		case 3:
-			gs = get_luma_linear(color);
+			gs = GetLumaLinear(color);
 			break;
 	}
 
