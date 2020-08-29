@@ -123,4 +123,23 @@ float2 ClampMagnitude(float2 v, float2 minMax) {
 	}
 }
 
+/**
+ * Apply rotation to a x/y point.
+ *
+ * @param uv The point to rotate.
+ * @param angle The rotation angle in degrees.
+ * @param pivot The origin point.
+ */
+float2 RotatePoint(float2 uv, float angle, float2 pivot)
+{
+	float2 sc;
+	sincos(DegreesToRadians * angle, sc.x, sc.y);
+
+	uv -= pivot;
+	uv = uv.x * sc.yx + float2(-uv.y, uv.y) * sc;
+	uv += pivot;
+
+	return uv;
+}
+
 }
