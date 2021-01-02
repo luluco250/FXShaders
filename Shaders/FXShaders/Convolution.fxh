@@ -95,17 +95,17 @@ float4 GaussianBlur1D(
 	float sigma,
 	int samples)
 {
-	static const float half_samples = samples * 0.5;
+	static const float halfSamples = (samples - 1) * 0.5;
 
 	float4 color = 0.0;
 	float accum = 0.0;
 
-	uv -= half_samples * dir;
+	uv -= halfSamples * dir;
 
 	[unroll]
 	for (int i = 0; i < samples; ++i)
 	{
-		float weight = Gaussian1DFast(i - half_samples, sigma);
+		float weight = Gaussian1DFast(i - halfSamples, sigma);
 
 		color += tex2D(sp, uv) * weight;
 		accum += weight;
@@ -136,23 +136,23 @@ float4 GaussianBlur2D(
 	float sigma,
 	int2 samples)
 {
-	static const float2 half_samples = samples * 0.5;
+	static const float2 halfSamples = samples * 0.5;
 
 	float4 color = 0.0;
 	float accum = 0.0;
 
-	uv -= half_samples * scale;
+	uv -= halfSamples * scale;
 
 	[unroll]
 	for (int x = 0; x < samples.x; ++x)
 	{
-		float init_x = uv.x;
+		float initX = uv.x;
 
 		[unroll]
 		for (int y = 0; y < samples.y; ++y)
 		{
 			float2 pos = float2(x, y);
-			float weight = Gaussian2D(abs(pos - half_samples), sigma);
+			float weight = Gaussian2D(abs(pos - halfSamples), sigma);
 
 			color += tex2D(sp, uv) * weight;
 			accum += weight;
@@ -160,7 +160,7 @@ float4 GaussianBlur2D(
 			uv.x += scale.x;
 		}
 
-		uv.x = init_x;
+		uv.x = initX;
 		uv.y += scale.y;
 	}
 
@@ -169,8 +169,8 @@ float4 GaussianBlur2D(
 
 float4 LinearBlur1D(sampler sp, float2 uv, float2 dir, int samples)
 {
-	static const float half_samples = (samples - 1) * 0.5;
-	uv -= half_samples * dir;
+	static const float halfSamples = (samples - 1) * 0.5;
+	uv -= halfSamples * dir;
 
 	float4 color = 0.0;
 
@@ -182,6 +182,23 @@ float4 LinearBlur1D(sampler sp, float2 uv, float2 dir, int samples)
 	}
 
 	return color / samples;
+}
+
+float4 MaxBlur1D(sampler sp, float2 uv, float2 dir, int samples)
+{
+	static const float halfSamples = (samples - 1) * 0.5;
+	uv -= halfSamples * dir;
+
+	float4 color = 0.0;
+
+	[unroll]
+	for (int i = 0; i < samples; ++i)
+	{
+		color = max(color, tex2D(sp, uv));
+		uv += dir;
+	}
+
+	return color;
 }
 
 } // Namespace.
