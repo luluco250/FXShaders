@@ -12,7 +12,7 @@
 #define MAGIC_LENS_DOWNSCALE 4
 #endif
 
-namespace FXShaders
+namespace FXShaders { namespace UnrealLens
 {
 
 static const int BlurSamples = MAGIC_LENS_BLUR_SAMPLES;
@@ -26,7 +26,7 @@ uniform float Brightness
 	ui_category = "Appearance";
 	ui_type = "slider";
 	ui_min = 0.0;
-	ui_max = 3.0;
+	ui_max = 1.0;
 > = 0.1;
 
 uniform float Saturation
@@ -34,7 +34,7 @@ uniform float Saturation
 	ui_category = "Appearance";
 	ui_type = "slider";
 	ui_min = 0.0;
-	ui_max = 2.0;
+	ui_max = 1.0;
 > = 0.7;
 
 uniform float Threshold
@@ -44,6 +44,15 @@ uniform float Threshold
 	ui_min = 0.0;
 	ui_max = 1.0;
 > = 0.7;
+
+uniform float EdgesMasking
+<
+	ui_category = "Appearance";
+	ui_label = "Edges Masking";
+	ui_type = "slider";
+	ui_min = 0.0;
+	ui_max = 1.0;
+> = 0.3;
 
 uniform int Tonemapper
 <
@@ -92,6 +101,8 @@ _FLARE_TINT(2, float4(1.0, 1.0, 1.0, 1.0));
 _FLARE_TINT(3, float4(1.0, 1.0, 1.0, 1.0));
 _FLARE_TINT(4, float4(1.0, 1.0, 1.0, 1.0));
 _FLARE_TINT(5, float4(1.0, 1.0, 1.0, 1.0));
+_FLARE_TINT(6, float4(1.0, 1.0, 1.0, 0.0));
+_FLARE_TINT(7, float4(1.0, 1.0, 1.0, 0.0));
 
 #undef _FLARE_TINT
 
@@ -110,6 +121,8 @@ _FLARE_SCALE(2, 0.2);
 _FLARE_SCALE(3, 0.1);
 _FLARE_SCALE(4, 0.05);
 _FLARE_SCALE(5, -1.0);
+_FLARE_SCALE(6, -1.0);
+_FLARE_SCALE(7, -1.0);
 
 #undef _FLARE_SCALE
 
@@ -158,15 +171,25 @@ sampler LensB
 	AddressV = BORDER;
 };
 
+float3 MaskEdges(float3 color, float2 uv)
+{
+	float mask = 1.0 - distance(uv, 0.5);
+	mask = saturate(lerp(1.0, mask, EdgesMasking * 3.0));
+	color.rgb *= mask;
+
+	return color;
+}
+
 float4 PreparePS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 {
 	uv = ScaleCoord(1.0 - uv, BaseFlareDownscale);
 	float4 color = tex2D(BackBuffer, uv);
 	color.rgb = Tonemap::Inverse(Tonemapper, color.rgb);
 
+	color.rgb = MaskEdges(color.rgb, uv);
 	color.rgb = ApplySaturation(color.rgb, Saturation);
 	color.rgb *= color.rgb >= Tonemap::Inverse(Tonemapper, Threshold).x;
-	color.rgb *= Brightness;
+	color.rgb *= Brightness * 0.1;
 
 	return color;
 }
@@ -203,8 +226,10 @@ float4 BlendPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 		_GET_FLARE(2) +
 		_GET_FLARE(3) +
 		_GET_FLARE(4) +
-		_GET_FLARE(5);
-	lens /= 5;
+		_GET_FLARE(5) +
+		_GET_FLARE(6) +
+		_GET_FLARE(7);
+	lens /= 7;
 
 	#undef _GET_FLARE
 
@@ -217,7 +242,7 @@ float4 BlendPS(float4 p : SV_POSITION, float2 uv : TEXCOORD) : SV_TARGET
 	return color;
 }
 
-technique MagicLens
+technique UnrealLens
 {
 	pass Prepare
 	{
@@ -251,4 +276,4 @@ technique MagicLens
 	}
 }
 
-} // Namespace.
+}} // Namespace.
