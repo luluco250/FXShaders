@@ -6,7 +6,8 @@
 "BakingLab ACES\0"  \
 "Narkowicz ACES\0" \
 "Unreal3\0" \
-"Lottes\0"
+"Lottes\0" \
+"Fallout4\0"
 
 namespace FXShaders { namespace Tonemap
 {
@@ -19,6 +20,7 @@ namespace Type
 	static const int NarkowiczACES = 3;
 	static const int Unreal3 = 4;
 	static const int Lottes = 5;
+	static const int Fallout4 = 6;
 }
 
 namespace Reinhard
@@ -232,6 +234,59 @@ namespace Unreal3
 	}
 }
 
+namespace Fallout4
+{
+	//CREDIT TO KINGERIC ON ENB FORUMS FOR RESEARCHING THE FORMULA: 
+	//http://enbseries.enbdev.com/forum/viewtopic.php?f=7&t=4695
+	//NOTE: It's highly adivsed to remove vanilla bloom in CK,
+	//Otherwise, it messes up the precison of MagicHDR bloom.
+	//Also, even without vanilla bloom, there seems to be a lot of precision lost,
+	//Manifesting in random bloom color shifts. Perhaps I did something wrong?
+
+	// Filmic operator.
+	static const float A = 0.3;
+
+	// Shoulder Strength.
+	static const float B = 0.50;
+
+	// Linear Strength.
+	static const float C = 0.10;
+
+	// Linear Angle.
+	static const float D = 0.10;
+
+	// Toe Strength, usually 0.02, (not static, modifiable in CK ImageSpaces!!!).
+	static const float E = 0.02;
+
+	// Toe Numerator.
+	static const float F = 0.30;
+	
+	//Toe Denominator (it was set to 5.6 in Fo4 and applied as alpha, not sure why).
+	static const float W = 1.0;
+ 	
+	
+	float3 Apply(float3 color)
+	{
+		color =
+		(
+			(color * (A * color + C * B) + D * E) /
+			(color * (A * color + B) + D * F)
+		) - E / F;
+
+		return color*=W;	//FO4 applied W parameter to alpha, not sure if it's correct so it's set to 1.0
+	}
+
+	float3 Inverse(float3 color)
+	{
+		return (abs(
+			((B * C * F - B * E - B * F * color) -
+			sqrt(
+				pow(abs(-B * C * F + B * E + B * F * color), 2.0) -
+				4.0 * D * (F * F) * color * (A * E + A * F * color - A * F))) /
+			(2.0 * A * (E + F * color - F))))/W;
+	}
+}
+
 float3 Apply(int type, float3 color)
 {
 	switch (type)
@@ -248,6 +303,8 @@ float3 Apply(int type, float3 color)
 			return Unreal3::Apply(color);
 		case Type::Lottes:
 			return Lottes::Apply(color);
+		case Type::Fallout4:
+			return Fallout4::Apply(color);
 	}
 
 	return color;
@@ -269,6 +326,8 @@ float3 Inverse(int type, float3 color)
 			return Unreal3::Inverse(color);
 		case Type::Lottes:
 			return Lottes::Inverse(color);
+		case Type::Fallout4:
+			return Fallout4::Inverse(color);
 	}
 
 	return color;
