@@ -58,7 +58,8 @@ static const int
 	InvTonemap_Unreal3 = 2,
 	InvTonemap_NarkowiczACES = 3,
 	InvTonemap_Uncharted2Filmic = 4,
-	InvTonemap_BakingLabACES = 5;
+	InvTonemap_BakingLabACES = 5,
+	InvTonemap_Fallout4 = 6;
 
 static const int
 	Tonemap_Reinhard = 0,
@@ -66,7 +67,8 @@ static const int
 	Tonemap_Unreal3 = 2,
 	Tonemap_NarkowiczACES = 3,
 	Tonemap_Uncharted2Filmic = 4,
-	Tonemap_BakingLabACES = 5;
+	Tonemap_BakingLabACES = 5,
+	Tonemap_Fallout4 = 6;
 
 //#endregion
 
@@ -139,7 +141,7 @@ uniform int InvTonemap
 		"\nDefault: Reinhard";
 	ui_type = "combo";
 	ui_items =
-		"Reinhard\0Lottes\0Unreal 3\0Narkowicz ACES\0Uncharted 2 Filmic\0Baking Lab ACES\0";
+		"Reinhard\0Lottes\0Unreal 3\0Narkowicz ACES\0Uncharted 2 Filmic\0Baking Lab ACES\0Fallout4\0";
 > = InvTonemap_Reinhard;
 
 uniform int Tonemap
@@ -151,7 +153,7 @@ uniform int Tonemap
 		"\nDefault: Baking Lab ACES";
 	ui_type = "combo";
 	ui_items =
-		"Reinhard\0Lottes\0Unreal 3\0Narkowicz ACES\0Uncharted 2 Filmic\0Baking Lab ACES\0";
+		"Reinhard\0Lottes\0Unreal 3\0Narkowicz ACES\0Uncharted 2 Filmic\0Baking Lab ACES\0Fallout4\0";
 > = Tonemap_BakingLabACES;
 
 uniform float BloomAmount
@@ -403,10 +405,7 @@ DEF_DOWNSAMPLED_TEX(Bloom5, 32, 1);
 			Texture = Bloom6Tex;
 		};
 	#else
-		DEF_DOWNSAMPLED_TEX(
-			Bloom6,
-			64,
-			FXSHADERS_GET_MAX_MIP(BUFFER_WIDTH / 64, BUFFER_HEIGHT / 64));
+	DEF_DOWNSAMPLED_TEX(Bloom6, 64, 1);
 	#endif
 #else
 	DEF_DOWNSAMPLED_TEX(Bloom6, 64, 1);
@@ -463,6 +462,9 @@ float3 ApplyInverseTonemap(float3 color, float2 uv)
 		case InvTonemap_BakingLabACES:
 			color = Tonemap::BakingLabACES::Inverse(color);
 			break;
+		case InvTonemap_Fallout4:
+			color = Tonemap::Fallout4::Inverse(color);
+			break;
 	}
 
 	color /= exp(InputExposure);
@@ -497,6 +499,9 @@ float3 ApplyTonemap(float3 color, float2 uv)
 			break;
 		case Tonemap_BakingLabACES:
 			color = Tonemap::BakingLabACES::Apply(color * exposure);
+			break;
+		case Tonemap_Fallout4:
+			color = Tonemap::Fallout4::Apply(color * exposure);
 			break;
 	}
 
