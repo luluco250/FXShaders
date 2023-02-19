@@ -240,8 +240,6 @@ namespace Fallout4
 	//http://enbseries.enbdev.com/forum/viewtopic.php?f=7&t=4695
 	//NOTE: It's highly adivsed to remove vanilla bloom in CK,
 	//Otherwise, it messes up the precison of MagicHDR bloom.
-	//Also, even without vanilla bloom, there seems to be a lot of precision lost,
-	//Manifesting in random bloom color shifts. Perhaps I did something wrong?
 
 	// Filmic operator.
 	static const float A = 0.3;
@@ -261,8 +259,8 @@ namespace Fallout4
 	// Toe Numerator.
 	static const float F = 0.30;
 	
-	//Toe Denominator (it was set to 5.6 in Fo4 and applied as alpha, not sure why).
-	static const float W = 1.0;
+	//Toe Denominator
+	static const float W = 5.6;
  	
 	
 	float3 Apply(float3 color)
@@ -273,18 +271,27 @@ namespace Fallout4
 			(color * (A * color + B) + D * F)
 		) - E / F;
 
-		return color*=W;	//FO4 applied W parameter to alpha, not sure if it's correct so it's set to 1.0
+//		return color /=w;
+		return color;	
 	}
-
+	
 	float3 Inverse(float3 color)
 	{
-		return (abs(
+	
+		color =
+		(
+			abs(
 			((B * C * F - B * E - B * F * color) -
 			sqrt(
 				pow(abs(-B * C * F + B * E + B * F * color), 2.0) -
 				4.0 * D * (F * F) * color * (A * E + A * F * color - A * F))) /
-			(2.0 * A * (E + F * color - F))))/W;
+			(2.0 * A * (E + F * color - F)))
+		);
+	
+		return color *=W;
+//		return color;
 	}
+	
 }
 
 float3 Apply(int type, float3 color)
