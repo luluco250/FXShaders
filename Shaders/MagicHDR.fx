@@ -54,21 +54,31 @@ static const float2 AdaptFocusPointDebugSize = 10.0;
 
 static const int
 	InvTonemap_Reinhard = 0,
-	InvTonemap_Lottes = 1,
-	InvTonemap_Unreal3 = 2,
-	InvTonemap_NarkowiczACES = 3,
-	InvTonemap_Uncharted2Filmic = 4,
-	InvTonemap_BakingLabACES = 5,
-	InvTonemap_Fallout4 = 6;
+	InvTonemap_Reinhard2 = 1,
+	InvTonemap_Uncharted2Filmic = 2,
+	InvTonemap_BakingLabACES = 3,
+	InvTonemap_Lottes = 4,
+	InvTonemap_Lottes2 = 5,
+	InvTonemap_NarkowiczACES = 6,
+	InvTonemap_Unreal3 = 7,
+	InvTonemap_Fallout4 = 8,
+	InvTonemap_AMDLPM = 9,
+	InvTonemap_Uchimura = 10,
+	InvTonemap_ReinhardJodie = 11;
 
 static const int
 	Tonemap_Reinhard = 0,
-	Tonemap_Lottes = 1,
-	Tonemap_Unreal3 = 2,
-	Tonemap_NarkowiczACES = 3,
-	Tonemap_Uncharted2Filmic = 4,
-	Tonemap_BakingLabACES = 5,
-	Tonemap_Fallout4 = 6;
+	Tonemap_Reinhard2 = 1,
+	Tonemap_Uncharted2Filmic = 2,
+	Tonemap_BakingLabACES = 3,
+	Tonemap_Lottes = 4,
+	Tonemap_Lottes2 = 5,
+	Tonemap_NarkowiczACES = 6,
+	Tonemap_Unreal3 = 7,
+	Tonemap_Fallout4 = 8,
+	Tonemap_AMDLPM = 9,
+	Tonemap_Uchimura = 10,
+	Tonemap_ReinhardJodie = 11;
 
 //#endregion
 
@@ -141,7 +151,7 @@ uniform int InvTonemap
 		"\nDefault: Reinhard";
 	ui_type = "combo";
 	ui_items =
-		"Reinhard\0Lottes\0Unreal 3\0Narkowicz ACES\0Uncharted 2 Filmic\0Baking Lab ACES\0Fallout4\0";
+		"Reinhard\0Reinhard2\0Uncharted 2 Filmic\0Baking Lab ACES\0Lottes\0Lottes2\0Narkowicz ACES\0Unreal 3\0Fallout4\0AMDLPM\0Uchimura\0ReinhardJodie\0";
 > = InvTonemap_Reinhard;
 
 uniform int Tonemap
@@ -153,7 +163,7 @@ uniform int Tonemap
 		"\nDefault: Baking Lab ACES";
 	ui_type = "combo";
 	ui_items =
-		"Reinhard\0Lottes\0Unreal 3\0Narkowicz ACES\0Uncharted 2 Filmic\0Baking Lab ACES\0Fallout4\0";
+		"Reinhard\0Reinhard2\0Uncharted 2 Filmic\0Baking Lab ACES\0Lottes\0Lottes2\0Narkowicz ACES\0Unreal 3\0Fallout4\0AMDLPM\0Uchimura\0ReinhardJodie\0";
 > = Tonemap_BakingLabACES;
 
 uniform float BloomAmount
@@ -447,14 +457,8 @@ float3 ApplyInverseTonemap(float3 color, float2 uv)
 		case InvTonemap_Reinhard:
 			color = Tonemap::Reinhard::Inverse(color);
 			break;
-		case InvTonemap_Lottes:
-			color = Tonemap::Lottes::Inverse(color);
-			break;
-		case InvTonemap_Unreal3:
-			color = Tonemap::Unreal3::Inverse(color);
-			break;
-		case InvTonemap_NarkowiczACES:
-			color = Tonemap::NarkowiczACES::Inverse(color);
+		case InvTonemap_Reinhard2:
+			color = Tonemap::Reinhard2::Inverse(color);
 			break;
 		case InvTonemap_Uncharted2Filmic:
 			color = Tonemap::Uncharted2Filmic::Inverse(color);
@@ -462,8 +466,29 @@ float3 ApplyInverseTonemap(float3 color, float2 uv)
 		case InvTonemap_BakingLabACES:
 			color = Tonemap::BakingLabACES::Inverse(color);
 			break;
+		case InvTonemap_Lottes:
+			color = Tonemap::Lottes::Inverse(color);
+			break;
+		case InvTonemap_Lottes2:
+			color = Tonemap::Lottes2::Inverse(color);
+			break;
+		case InvTonemap_NarkowiczACES:
+			color = Tonemap::NarkowiczACES::Inverse(color);
+			break;
+		case InvTonemap_Unreal3:
+			color = Tonemap::Unreal3::Inverse(color);
+			break;
 		case InvTonemap_Fallout4:
 			color = Tonemap::Fallout4::Inverse(color);
+			break;
+		case InvTonemap_AMDLPM:
+			color = Tonemap::AMDLPM::Inverse(color);
+			break;
+		case InvTonemap_Uchimura:
+			color = Tonemap::Uchimura::Inverse(color);
+			break;
+		case InvTonemap_ReinhardJodie:
+			color = Tonemap::ReinhardJodie::Inverse(color);
 			break;
 	}
 
@@ -485,14 +510,8 @@ float3 ApplyTonemap(float3 color, float2 uv)
 		case Tonemap_Reinhard:
 			color = Tonemap::Reinhard::Apply(color * exposure);
 			break;
-		case Tonemap_Lottes:
-			color = Tonemap::Lottes::Apply(color * exposure);
-			break;
-		case Tonemap_Unreal3:
-			color = Tonemap::Unreal3::Apply(color * exposure);
-			break;
-		case Tonemap_NarkowiczACES:
-			color = Tonemap::NarkowiczACES::Apply(color * exposure);
+		case Tonemap_Reinhard2:
+			color = Tonemap::Reinhard2::Apply(color * exposure);
 			break;
 		case Tonemap_Uncharted2Filmic:
 			color = Tonemap::Uncharted2Filmic::Apply(color * exposure);
@@ -500,8 +519,29 @@ float3 ApplyTonemap(float3 color, float2 uv)
 		case Tonemap_BakingLabACES:
 			color = Tonemap::BakingLabACES::Apply(color * exposure);
 			break;
+		case Tonemap_Lottes:
+			color = Tonemap::Lottes::Apply(color * exposure);
+			break;
+		case Tonemap_Lottes2:
+			color = Tonemap::Lottes2::Apply(color * exposure);
+			break;
+		case Tonemap_NarkowiczACES:
+			color = Tonemap::NarkowiczACES::Apply(color * exposure);
+			break;
+		case Tonemap_Unreal3:
+			color = Tonemap::Unreal3::Apply(color * exposure);
+			break;
 		case Tonemap_Fallout4:
 			color = Tonemap::Fallout4::Apply(color * exposure);
+			break;
+		case Tonemap_AMDLPM:
+			color = Tonemap::AMDLPM::Apply(color * exposure);
+			break;
+		case Tonemap_Uchimura:
+			color = Tonemap::Uchimura::Apply(color * exposure);
+			break;
+		case Tonemap_ReinhardJodie:
+			color = Tonemap::ReinhardJodie::Apply(color * exposure);
 			break;
 	}
 
