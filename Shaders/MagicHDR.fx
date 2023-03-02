@@ -255,11 +255,11 @@ uniform float BloomBurnout
 	ui_tooltip =
 		"Prevents bloom texture screen edges from being overexposed.\n"
 		"More is Less. Use Bloom debug to set it up properly.\n"
-		"\nDefault: 20.0";
+		"\nDefault: 10.0";
 	ui_type = "slider";
 	ui_min = 3.0;
 	ui_max = 1000.0;
-> = 20.0;
+> = 10.0;
 
 #if MAGIC_HDR_ENABLE_ADAPTATION
 
