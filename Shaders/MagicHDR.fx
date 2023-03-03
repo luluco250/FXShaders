@@ -257,9 +257,23 @@ uniform float BloomBurnout
 		"More is Less. Use Bloom debug to set it up properly.\n"
 		"\nDefault: 10.0";
 	ui_type = "slider";
-	ui_min = 3.0;
-	ui_max = 1000.0;
+	ui_min = 1.0;
+	ui_max = 100.0;
+	ui_step = 0.1;
 > = 10.0;
+
+uniform float BloomClampEpsilon
+<
+	ui_category = "Bloom - Advanced";
+	ui_label = "Bloom Edges Clamp Epsilon";
+	ui_tooltip =
+		"Hard clamp to the bloom textures edge\n"
+		"\nDefault: 10.0";
+	ui_type = "slider";
+	ui_min = 0.00;
+	ui_max = 0.10;
+	ui_step = 0.001;
+> = 0.010;
 
 #if MAGIC_HDR_ENABLE_ADAPTATION
 
@@ -724,21 +738,21 @@ float4 TonemapPS(
 		tex2D(Bloom4, uv) * NormalDistribution(5, mean, variance) +
 		tex2D(Bloom5, uv) * NormalDistribution(6, mean, variance) +
 		tex2D(Bloom6, uv) * NormalDistribution(7, mean, variance);
-
-	bloom /= 7;
-	
+		
 	// Calculate the distance from the center of the screen
 	float2 screenCenter = float2(0.5, 0.5);
 	float2 screenAspect = GetResolution() / float2(BUFFER_WIDTH, BUFFER_HEIGHT);
-	float2 dist = abs(uv - screenCenter) * screenAspect * 2.0;
+	float2 dist = abs(uv - screenCenter) * screenAspect * (1.98 + BloomClampEpsilon);
 	float distRatio = max(dist.x, dist.y);
 	
 	// Clamp the bloom at the edges of the screen
-	//bloom = lerp(bloom, float4(0.0,0.0,0.0,1.0), smoothstep(0.95, 1.0, distRatio));
+	bloom = lerp(bloom, float4(0.0,0.0,0.0,1.0), smoothstep((1.00 - BloomClampEpsilon), 1.0, distRatio));
 	
 	// Apply burnout to the bloom at the edges
 	float burnout = 1.0 - pow(distRatio, BloomBurnout);
 	bloom *= burnout;
+
+	bloom /= 7;
 
 	color.rgb = ShowBloom
 		? bloom.rgb
