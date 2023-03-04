@@ -222,7 +222,7 @@ uniform float BloomContrastSoft
 		"\nDefault: 1.0";
 	ui_type = "slider";
 	ui_min = 1.0;
-	ui_max = 1000.0;
+	ui_max = 2000.0;
 > = 1.0;
 
 #endif
@@ -437,11 +437,15 @@ texture name##Tex <pooled = true;> \
 	Height = BUFFER_HEIGHT / DownsampleAmount.y / downscale; \
 	Format = RGBA16F; \
 	MipLevels = maxMip; \
+	AddressU = Border; \
+    	AddressV = Border; \
 }; \
 \
 sampler name \
 { \
 	Texture = name##Tex; \
+	AddressU = Border; \
+    	AddressV = Border; \
 }
 
 // This texture is used as a sort of "HDR backbuffer".
