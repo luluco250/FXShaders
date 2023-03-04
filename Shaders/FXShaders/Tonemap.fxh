@@ -237,8 +237,8 @@ namespace Lottes
 	float3 Inverse(float3 color)
 	{
 		float3 finalcolor = color * rcp(max(1.0 - max(color.r, max(color.g, color.b)), 0.1));
-		return clamp(finalcolor, 0.0, 1.0);
-		//return finalcolor;
+		//return clamp(finalcolor, 0.0, 1.0);
+		return finalcolor;
 	}
 	
 }
