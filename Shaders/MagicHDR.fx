@@ -194,6 +194,18 @@ uniform float BloomBrightness
 	ui_max = 5.0;
 > = 3.0;
 
+uniform float BloomContrast
+<
+	ui_category = "Bloom";
+	ui_label = "Contrast";
+	ui_tooltip =
+		"This value is used to contrast the bloom texture.\n"
+		"\nDefault: 1.0";
+	ui_type = "slider";
+	ui_min = 1.0;
+	ui_max = 1000.0;
+> = 1.0;
+
 uniform float BloomSaturation
 <
 	ui_category = "Bloom";
@@ -268,12 +280,12 @@ uniform float BloomClampEpsilon
 	ui_label = "Bloom Edges Clamp Epsilon";
 	ui_tooltip =
 		"Hard clamp to the bloom textures edge\n"
-		"\nDefault: 10.0";
+		"\nDefault: 0.0";
 	ui_type = "slider";
 	ui_min = 0.00;
 	ui_max = 0.10;
 	ui_step = 0.001;
-> = 0.010;
+> = 0.000;
 
 #if MAGIC_HDR_ENABLE_ADAPTATION
 
@@ -616,6 +628,11 @@ float4 InverseTonemapPS(
 
 	// TODO: Saturation and other color filtering options?
 	color.rgb *= exp(BloomBrightness);
+	
+	float lowerThreshold = BloomContrast - BloomContrast * 0.5;
+    	float upperThreshold = BloomContrast + BloomContrast * 0.5;
+	
+	color.rgb *= smoothstep(lowerThreshold, upperThreshold, max(color.rgb,color.rgb));
 
 	return color;
 }
