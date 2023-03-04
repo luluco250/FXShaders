@@ -39,6 +39,10 @@
 #define MAGIC_HDR_ENABLE_ADAPTATION 0
 #endif
 
+#ifndef MAGIC_HDR_ENABLE_BLOOM_CONTRAST
+#define MAGIC_HDR_ENABLE_BLOOM_CONTRAST 0
+#endif
+
 //#endregion
 
 namespace FXShaders
@@ -194,10 +198,12 @@ uniform float BloomBrightness
 	ui_max = 5.0;
 > = 3.0;
 
+#if MAGIC_HDR_ENABLE_BLOOM_CONTRAST
+
 uniform float BloomContrast
 <
 	ui_category = "Bloom";
-	ui_label = "Contrast";
+	ui_label = "Contrast Hard";
 	ui_tooltip =
 		"This value is used to contrast the bloom texture.\n"
 		"\nDefault: 1.0";
@@ -205,6 +211,21 @@ uniform float BloomContrast
 	ui_min = 1.0;
 	ui_max = 1000.0;
 > = 1.0;
+
+uniform float BloomContrastSoft
+<
+	ui_category = "Bloom";
+	ui_label = "Contrast Soft";
+	ui_tooltip =
+		"This value is used to soften the contrast of the bloom texture.\n"
+		"Must be higher than Contrast Hard.\n"
+		"\nDefault: 1.0";
+	ui_type = "slider";
+	ui_min = 1.0;
+	ui_max = 1000.0;
+> = 1.0;
+
+#endif
 
 uniform float BloomSaturation
 <
@@ -629,10 +650,13 @@ float4 InverseTonemapPS(
 	// TODO: Saturation and other color filtering options?
 	color.rgb *= exp(BloomBrightness);
 	
-	float lowerThreshold = BloomContrast - BloomContrast * 0.5;
-    	float upperThreshold = BloomContrast + BloomContrast * 0.5;
+	//Thresholding code by TheSandvichMaster
+	#if MAGIC_HDR_ENABLE_BLOOM_CONTRAST > 0
+	float lowerThreshold = BloomContrast - BloomContrastSoft * 0.5;
+    	float upperThreshold = BloomContrast + BloomContrastSoft * 0.5;
 	
 	color.rgb *= smoothstep(lowerThreshold, upperThreshold, max(color.rgb,color.rgb));
+	#endif
 
 	return color;
 }
