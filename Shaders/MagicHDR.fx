@@ -68,7 +68,8 @@ static const int
 	InvTonemap_Fallout4 = 8,
 	InvTonemap_AMDLPM = 9,
 	InvTonemap_Uchimura = 10,
-	InvTonemap_ReinhardJodie = 11;
+	InvTonemap_ReinhardJodie = 11,
+	InvTonemap_iCAM06m = 12;
 
 static const int
 	Tonemap_Reinhard = 0,
@@ -82,7 +83,8 @@ static const int
 	Tonemap_Fallout4 = 8,
 	Tonemap_AMDLPM = 9,
 	Tonemap_Uchimura = 10,
-	Tonemap_ReinhardJodie = 11;
+	Tonemap_ReinhardJodie = 11,
+	Tonemap_iCAM06m = 12;
 
 //#endregion
 
@@ -155,7 +157,7 @@ uniform int InvTonemap
 		"\nDefault: Reinhard";
 	ui_type = "combo";
 	ui_items =
-		"Reinhard\0Reinhard2\0Uncharted 2 Filmic\0Baking Lab ACES\0Lottes\0Lottes2\0Narkowicz ACES\0Unreal 3\0Fallout4\0AMDLPM\0Uchimura\0ReinhardJodie\0";
+		"Reinhard\0Reinhard2\0Uncharted 2 Filmic\0Baking Lab ACES\0Lottes\0Lottes2\0Narkowicz ACES\0Unreal 3\0Fallout4\0AMDLPM\0Uchimura\0ReinhardJodie\0iCAM06m\0";
 > = InvTonemap_Reinhard;
 
 uniform int Tonemap
@@ -167,7 +169,7 @@ uniform int Tonemap
 		"\nDefault: Baking Lab ACES";
 	ui_type = "combo";
 	ui_items =
-		"Reinhard\0Reinhard2\0Uncharted 2 Filmic\0Baking Lab ACES\0Lottes\0Lottes2\0Narkowicz ACES\0Unreal 3\0Fallout4\0AMDLPM\0Uchimura\0ReinhardJodie\0";
+		"Reinhard\0Reinhard2\0Uncharted 2 Filmic\0Baking Lab ACES\0Lottes\0Lottes2\0Narkowicz ACES\0Unreal 3\0Fallout4\0AMDLPM\0Uchimura\0ReinhardJodie\0iCAM06m\0";
 > = Tonemap_BakingLabACES;
 
 uniform float BloomAmount
@@ -438,14 +440,14 @@ texture name##Tex <pooled = true;> \
 	Format = RGBA16F; \
 	MipLevels = maxMip; \
 	AddressU = Border; \
-    	AddressV = Border; \
+    AddressV = Border; \
 }; \
 \
 sampler name \
 { \
 	Texture = name##Tex; \
 	AddressU = Border; \
-    	AddressV = Border; \
+    AddressV = Border; \
 }
 
 // This texture is used as a sort of "HDR backbuffer".
@@ -460,29 +462,25 @@ DEF_DOWNSAMPLED_TEX(Bloom4, 16, 1);
 DEF_DOWNSAMPLED_TEX(Bloom5, 32, 1);
 
 #if MAGIC_HDR_ENABLE_ADAPTATION
-	#if FXSHADERS_API_IS(FXSHADERS_API_OPENGL)
-		#define MAGIC_HDR_ADAPT_TEXTURE_RESOLUTION \
-			FXSHADERS_NPOT(FXSHADERS_MAX(BUFFER_WIDTH, BUFFER_HEIGHT) / 64)
+	#define MAGIC_HDR_ADAPT_TEXTURE_RESOLUTION \
+		FXSHADERS_NPOT(FXSHADERS_MAX(BUFFER_WIDTH, BUFFER_HEIGHT) / 64)
 
-		texture Bloom6Tex <pooled = true;>
-		{
-			Width = MAGIC_HDR_ADAPT_TEXTURE_RESOLUTION;
-			Height = MAGIC_HDR_ADAPT_TEXTURE_RESOLUTION;
-			Format = RGBA16F;
-			MipLevels = FXSHADERS_GET_MAX_MIP(
-				MAGIC_HDR_ADAPT_TEXTURE_RESOLUTION,
-				MAGIC_HDR_ADAPT_TEXTURE_RESOLUTION);
-		};
+	texture Bloom6Tex <pooled = true;>
+	{
+		Width = MAGIC_HDR_ADAPT_TEXTURE_RESOLUTION;
+		Height = MAGIC_HDR_ADAPT_TEXTURE_RESOLUTION;
+		Format = RGBA16F;
+		MipLevels = FXSHADERS_GET_MAX_MIP(
+			MAGIC_HDR_ADAPT_TEXTURE_RESOLUTION,
+			MAGIC_HDR_ADAPT_TEXTURE_RESOLUTION);
+	};
 
-		sampler Bloom6
-		{
-			Texture = Bloom6Tex;
-		};
+	sampler Bloom6
+	{
+		Texture = Bloom6Tex;
+	};
 	#else
-	DEF_DOWNSAMPLED_TEX(Bloom6, 64, 1);
-	#endif
-#else
-	DEF_DOWNSAMPLED_TEX(Bloom6, 64, 1);
+		DEF_DOWNSAMPLED_TEX(Bloom6, 64, 1);
 #endif
 
 #if MAGIC_HDR_ENABLE_ADAPTATION
@@ -554,6 +552,9 @@ float3 ApplyInverseTonemap(float3 color, float2 uv)
 		case InvTonemap_ReinhardJodie:
 			color = Tonemap::ReinhardJodie::Inverse(color);
 			break;
+		case InvTonemap_iCAM06m:
+			color = Tonemap::iCAM06m::Inverse(color);
+			break;
 	}
 
 	color /= exp(InputExposure);
@@ -607,6 +608,9 @@ float3 ApplyTonemap(float3 color, float2 uv)
 		case Tonemap_ReinhardJodie:
 			color = Tonemap::ReinhardJodie::Apply(color * exposure);
 			break;
+		case Tonemap_iCAM06m:
+			color = Tonemap::iCAM06m::Apply(color * exposure);
+			break;
 	}
 
 	return color;
@@ -657,7 +661,7 @@ float4 InverseTonemapPS(
 	//Thresholding code by TheSandvichMaster
 	#if MAGIC_HDR_ENABLE_BLOOM_CONTRAST > 0
 	float lowerThreshold = BloomContrast - BloomContrastSoft * 0.5;
-    	float upperThreshold = BloomContrast + BloomContrastSoft * 0.5;
+    float upperThreshold = BloomContrast + BloomContrastSoft * 0.5;
 	
 	color.rgb *= smoothstep(lowerThreshold, upperThreshold, max(color.rgb,color.rgb));
 	#endif
