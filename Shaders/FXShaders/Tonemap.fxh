@@ -12,7 +12,8 @@
 "Fallout4\0" \
 "AMDLPM\0" \
 "Uchimura\0" \
-"ReinhardJodie\0"
+"ReinhardJodie\0" \
+"iCAM06m\0"
 
 float FindMaxLuminance(float3 color)
 {
@@ -36,6 +37,7 @@ namespace Type
 	static const int AMDLPM = 9;
 	static const int Uchimura = 10;
 	static const int ReinhardJodie = 11;
+	static const int iCAM06m = 12;
 }
 
 namespace Reinhard
@@ -525,11 +527,11 @@ namespace Uchimura
 	/**
 	* Grand Tourismo Tonemapping.
 	*/
-    static const float P = 1.0;  // max display brightness
-    static const float a = 0.75;  // contrast
+    static const float P = 300.0;  // max display brightness
+    static const float a = 0.5;  // contrast
     static const float m = 0.22; // linear section start
-    static const float l = 0.15;  // linear section length
-    static const float c = 1.5; // black
+    static const float l = 0.55;  // linear section length
+    static const float c = 1.1; // black
     static const float b = 0.0;  // pedestal
 	
 	float3 Apply(float3 color)
@@ -552,7 +554,7 @@ namespace Uchimura
 		float3 L = m + a * (color - m);
 
 		float3 result = T * w0 + L * w1 + S * w2;
-		result = pow(result, 1.0/2.2);
+		//result = pow(result, 1.0/2.2);
 		result = clamp(result, 0.0,1.0);
 		return result;
 	}
@@ -594,12 +596,13 @@ namespace ReinhardJodie
 	* Alternative Reinhard tonemapping formula that attempts to preserve a bit of saturation on highlights.
 	*/
 	float3 Apply(float3 color)
-	{
+	{	    
 		float3 luma = (0.2126, 0.7152, 0.0722);
 		float3 l = dot(color, luma);
 		float3 tc=color/(color+1.);
 		float3 finalcolor = lerp(color/(l+1.),tc,tc);
 		finalcolor = clamp(finalcolor, 0.0, 1.0);
+		
 		return finalcolor;
 	}
 	
@@ -609,6 +612,104 @@ namespace ReinhardJodie
 		float3 l = dot(color, luma);
 		float3 tc = lerp(color / (l + 1.0), color / (color + 1.0), color / (color + 1.0));
 		return tc / (1.0 - tc);
+	}
+}
+
+namespace iCAM06m
+{
+
+    // Define the color conversion matrices
+	static const float RGBtoXYZ[] = { 0.4124564, 0.3575761, 0.1804375, 0.2126729, 0.7151522, 0.0721750, 0.0193339, 0.1191920, 0.9503041 };
+    static const float XYZtoRGB[] = { 3.2404542, -1.5371385, -0.4985314, -0.9692660, 1.8760108, 0.0415560, 0.0556434, -0.2040259, 1.0572252 };
+	static const float Exposure = -4.0;
+	static const float Whitepoint = 100.0;
+	
+	/**
+	* iCAM06m tonemapping formula that attempts to preserve a bit of saturation on highlights.
+	*/
+	
+		float3 Apply(float3 color)
+    {
+        // Compute the luminance of the input color
+        float L = dot(color, float3(0.2126, 0.7152, 0.0722));
+
+        // Normalize the luminance using the whitepoint
+        float Lw = dot(float3(Whitepoint,Whitepoint,Whitepoint), float3(RGBtoXYZ[0], RGBtoXYZ[1], RGBtoXYZ[2]));
+        L = L / Lw;
+
+        // Compute the local adaptation luminance
+        float La = L / (1.0 + L);
+
+        // Compute the surround factor
+        float F = 0.2 * pow(abs(La), 0.4);
+
+        // Compute the chromatic adaptation factor
+        float Fc = pow(1.219 + pow(F, 0.4), 1.0 / 0.4);
+
+        // Apply the exposure adjustment
+        color *= pow(2.0, Exposure);
+
+        // Compute the scaled luminance
+        float3 XYZ = float3(
+            RGBtoXYZ[0] * color.x + RGBtoXYZ[1] * color.y + RGBtoXYZ[2] * color.z,
+            RGBtoXYZ[3] * color.x + RGBtoXYZ[4] * color.y + RGBtoXYZ[5] * color.z,
+            RGBtoXYZ[6] * color.x + RGBtoXYZ[7] * color.y + RGBtoXYZ[8] * color.z);
+
+        // Normalize the luminance using the whitepoint
+        XYZ /= Lw;
+
+        // Apply the chromatic adaptation factor
+        XYZ *= Fc;
+
+        // Compute the adapted XYZ values
+        XYZ *= Lw;
+
+        // Convert the adapted XYZ values back to RGB
+        color = float3(
+            XYZtoRGB[0] * XYZ.x + XYZtoRGB[1] * XYZ.y + XYZtoRGB[2] * XYZ.z,
+            XYZtoRGB[3] * XYZ.x + XYZtoRGB[4] * XYZ.y + XYZtoRGB[5] * XYZ.z,
+            XYZtoRGB[6] * XYZ.x + XYZtoRGB[7] * XYZ.y + XYZtoRGB[8] * XYZ.z);
+
+        // Apply gamma correction to convert the output from linear to sRGB color space
+        //color = pow(color, float(1.0 / 2.2));
+		color = clamp(color, 0.0, 1.0);
+
+        return color;
+    }
+	
+		float3 Inverse(float3 color)
+	{
+        // Undo gamma correction to convert input from sRGB to linear color space
+        //color = pow(color, 2.2);
+
+        // Convert the input RGB values to XYZ color space
+        float3 XYZ = float3(
+            RGBtoXYZ[0] * color.x + RGBtoXYZ[1] * color.y + RGBtoXYZ[2] * color.z,
+            RGBtoXYZ[3] * color.x + RGBtoXYZ[4] * color.y + RGBtoXYZ[5] * color.z,
+            RGBtoXYZ[6] * color.x + RGBtoXYZ[7] * color.y + RGBtoXYZ[8] * color.z);
+
+        // Normalize the luminance using the whitepoint
+        float Lw = dot(float3(Whitepoint,Whitepoint,Whitepoint), float3(RGBtoXYZ[0], RGBtoXYZ[1], RGBtoXYZ[2]));
+        XYZ /= Lw;
+
+        // Undo the chromatic adaptation factor
+        float F = 0.2 * pow(abs(XYZ.y / Lw), 0.4);
+        float Fc = pow(1.219 + pow(F, 0.4), 1.0 / 0.4);
+        XYZ /= Fc;
+
+        // Compute the adapted RGB values
+        float3 RGB = float3(
+            XYZtoRGB[0] * XYZ.x + XYZtoRGB[1] * XYZ.y + XYZtoRGB[2] * XYZ.z,
+            XYZtoRGB[3] * XYZ.x + XYZtoRGB[4] * XYZ.y + XYZtoRGB[5] * XYZ.z,
+            XYZtoRGB[6] * XYZ.x + XYZtoRGB[7] * XYZ.y + XYZtoRGB[8] * XYZ.z);
+
+        // Undo exposure adjustment
+        RGB /= pow(2.0, (Exposure + (Exposure * 1.5)));
+
+        // Normalize the RGB values to range [0,1]
+        //RGB = clamp(RGB, 0.0, 1.0);
+
+        return RGB;
 	}
 }
 
@@ -641,6 +742,8 @@ float3 Apply(int type, float3 color)
 			return Uchimura::Apply(color);
 		case Type::ReinhardJodie:
 			return ReinhardJodie::Apply(color);
+		case Type::iCAM06m:
+			return iCAM06m::Apply(color);
 	}
 
 	return color;
@@ -674,6 +777,8 @@ float3 Inverse(int type, float3 color)
 			return Uchimura::Inverse(color);
 		case Type::ReinhardJodie:
 			return ReinhardJodie::Inverse(color);
+		case Type::iCAM06m:
+			return iCAM06m::Inverse(color);
 	}
 
 	return color;
