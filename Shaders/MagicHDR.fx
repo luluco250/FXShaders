@@ -69,7 +69,8 @@ static const int
 	InvTonemap_AMDLPM = 9,
 	InvTonemap_Uchimura = 10,
 	InvTonemap_ReinhardJodie = 11,
-	InvTonemap_iCAM06m = 12;
+	InvTonemap_iCAM06m = 12,
+	InvTonemap_Linear = 13;
 
 static const int
 	Tonemap_Reinhard = 0,
@@ -84,7 +85,12 @@ static const int
 	Tonemap_AMDLPM = 9,
 	Tonemap_Uchimura = 10,
 	Tonemap_ReinhardJodie = 11,
-	Tonemap_iCAM06m = 12;
+	Tonemap_iCAM06m = 12,
+	Tonemap_Linear = 13;
+	
+static const int 
+	Additive = 0,
+	Overlay = 1;
 
 //#endregion
 
@@ -157,7 +163,7 @@ uniform int InvTonemap
 		"\nDefault: Reinhard";
 	ui_type = "combo";
 	ui_items =
-		"Reinhard\0Reinhard2\0Uncharted 2 Filmic\0Baking Lab ACES\0Lottes\0Lottes2\0Narkowicz ACES\0Unreal 3\0Fallout4\0AMDLPM\0Uchimura\0ReinhardJodie\0iCAM06m\0";
+		"Reinhard\0Reinhard2\0Uncharted 2 Filmic\0Baking Lab ACES\0Lottes\0Lottes2\0Narkowicz ACES\0Unreal 3\0Fallout4\0AMDLPM\0Uchimura\0ReinhardJodie\0iCAM06m\0Linear\0";
 > = InvTonemap_Reinhard;
 
 uniform int Tonemap
@@ -169,7 +175,7 @@ uniform int Tonemap
 		"\nDefault: Baking Lab ACES";
 	ui_type = "combo";
 	ui_items =
-		"Reinhard\0Reinhard2\0Uncharted 2 Filmic\0Baking Lab ACES\0Lottes\0Lottes2\0Narkowicz ACES\0Unreal 3\0Fallout4\0AMDLPM\0Uchimura\0ReinhardJodie\0iCAM06m\0";
+		"Reinhard\0Reinhard2\0Uncharted 2 Filmic\0Baking Lab ACES\0Lottes\0Lottes2\0Narkowicz ACES\0Unreal 3\0Fallout4\0AMDLPM\0Uchimura\0ReinhardJodie\0iCAM06m\0Linear\0";
 > = Tonemap_BakingLabACES;
 
 uniform float BloomAmount
@@ -179,7 +185,7 @@ uniform float BloomAmount
 	ui_label = "Amount";
 	ui_tooltip =
 		"The amount of bloom to apply to the image.\n"
-		"\nDefault: 0.3";
+		"\nDefault: 0.3. You can use higher than 1.0 in additive mode.";
 	ui_type = "slider";
 	ui_min = 0.0;
 	ui_max = 1.0;
@@ -282,6 +288,17 @@ uniform float BlendingBase
 	ui_min = 0.0;
 	ui_max = 1.0;
 > = 0.8;
+
+uniform int BlendingType
+<
+	ui_category = "Bloom - Advanced";
+	ui_label = "Blending Type";
+	ui_tooltip =
+		"Methods of blending bloom with image.\n"
+		"\nDefault: Additive";
+	ui_type = "combo";
+	ui_items = "Additive\0Overlay\0";
+> = Overlay;
 
 #if MAGIC_HDR_ENABLE_ADAPTATION
 
@@ -528,6 +545,9 @@ float3 ApplyInverseTonemap(float3 color, float2 uv)
 		case InvTonemap_iCAM06m:
 			color = Tonemap::iCAM06m::Inverse(color);
 			break;
+		case InvTonemap_Linear:
+			color = Tonemap::Linear::Inverse(color);
+			break;
 	}
 
 	color /= exp(InputExposure);
@@ -584,6 +604,9 @@ float3 ApplyTonemap(float3 color, float2 uv)
 		case Tonemap_iCAM06m:
 			color = Tonemap::iCAM06m::Apply(color * exposure);
 			break;
+		case Tonemap_Linear:
+			color = Tonemap::Linear::Apply(color * exposure);
+			break;
 	}
 
 	return color;
@@ -620,11 +643,16 @@ float4 InverseTonemapPS(
 {
 	float4 color = tex2D(Color, uv);
 
-	float saturation = (BloomSaturation > 1.0)
-		? pow(abs(BloomSaturation), 2.0)
-		: BloomSaturation;
+	float saturation = BloomSaturation;
+								  
+					
 
 	color.rgb = saturate(ApplySaturation(color.rgb, saturation));
+	
+	#if MAGIC_HDR_SRGB_INPUT
+		// Precise sRGB to Linear
+		color.rgb = color.rgb * (color.rgb * (color.rgb * 0.305306011 + 0.682171111) + 0.012522878);
+	#endif
 
 	color.rgb = ApplyInverseTonemap(color.rgb, uv);
 
@@ -741,6 +769,11 @@ float4 TonemapPS(
 			float4 rect = ConvertToRect(pointPos, AdaptFocusPointDebugSize);
 
 			FillRect(color, coord, rect, pointColor);
+			
+			#if MAGIC_HDR_SRGB_OUTPUT
+				// Precise Linear to sRGB
+				color = max(1.055 * pow(color, 0.416666667) - 0.055, 0);
+			#endif
 
 			return color;
 		}
@@ -762,12 +795,25 @@ float4 TonemapPS(
 		tex2D(Bloom6, uv) * NormalDistribution(7, mean, variance);
 
 	bloom /= 7;
-
+	if (BlendingType == Overlay)	
+	{
 	color.rgb = ShowBloom
 		? bloom.rgb
 		: lerp(color.rgb, bloom.rgb, log10(BloomAmount + 1.0));
+	}
+	
+	else if (BlendingType == Additive)	
+	{
+	color.rgb = ShowBloom
+		? bloom.rgb
+		: color.rgb + (bloom.rgb * log10(BloomAmount + 1.0));
+	}
+	color.rgb = ApplyTonemap(color.rgb, uv);	
 
-	color.rgb = ApplyTonemap(color.rgb, uv);
+	#if MAGIC_HDR_SRGB_OUTPUT
+		// Precise Linear to sRGB
+		color.rgb = max(1.055 * pow(color.rgb, 0.416666667) - 0.055, 0);
+	#endif
 
 	return color;
 }
@@ -825,11 +871,11 @@ technique MagicHDR <ui_tooltip = "FXShaders - Bloom and tonemapping effect.";>
 	pass Tonemap
 	{
 		VertexShader = ScreenVS;
-		PixelShader = TonemapPS;
+		PixelShader = TonemapPS;		
 
-		#if MAGIC_HDR_SRGB_OUTPUT
-			SRGBWriteEnable = true;
-		#endif
+						   
+						  
+		
 	}
 }
 
