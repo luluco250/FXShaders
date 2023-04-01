@@ -13,7 +13,8 @@
 "AMDLPM\0" \
 "Uchimura\0" \
 "ReinhardJodie\0" \
-"iCAM06m\0"
+"iCAM06m\0" \
+"Linear\0"
 
 float FindMaxLuminance(float3 color)
 {
@@ -38,6 +39,7 @@ namespace Type
 	static const int Uchimura = 10;
 	static const int ReinhardJodie = 11;
 	static const int iCAM06m = 12;
+	static const int Linear = 13;
 }
 
 namespace Reinhard
@@ -95,7 +97,7 @@ namespace Reinhard
 
 namespace Reinhard2
 {
-	static const float L_white = 40.0;
+	static const float L_white = 1.0;
 	/**
 	* Alternative Reinhard tonemapping formula that allows whitepoint editing.
 	*/
@@ -138,28 +140,30 @@ namespace Uncharted2Filmic
 
 	float3 Apply(float3 color)
 	{
+		color = color / W;
 		color =
 		(
 			(color * (A * color + C * B) + D * E) /
 			(color * (A * color + B) + D * F)
 		) - E / F;
 
-		color = color * W / (W + 1.0);
+								
 		
-		float3 finalcolor = clamp(color, 0.0, 1.0);
-		return finalcolor;
+		color = saturate(color);
+		return color;
 	}
 
 	float3 Inverse(float3 color)
 	{
-		color = color * (W + 1.0) / W;
+								
 
-		return abs(
+		abs(
 			((B * C * F - B * E - B * F * color) -
 			sqrt(
 				pow(abs(-B * C * F + B * E + B * F * color), 2.0) -
 				4.0 * D * (F * F) * color * (A * E + A * F * color - A * F))) /
 			(2.0 * A * (E + F * color - F)));
+		return color = color * W;
 	}
 }
 
@@ -231,15 +235,17 @@ namespace Lottes
 {
 	float3 Apply(float3 color)
 	{
-	float3 finalcolor =  color * rcp(max(color.r, max(color.g, color.b)) + 1.0);
-	
-	return finalcolor = clamp(finalcolor, 0.0, 1.0);
+		float3 finalcolor =  color * rcp(max(color.r, max(color.g, color.b)) + 1.0);
+		
+		//finalcolor = max(1.055 * pow(color, 0.416666667) - 0.055, 0);
+		
+		return finalcolor = clamp(finalcolor, 0.0, 1.0);
 	}
 	
 	float3 Inverse(float3 color)
 	{
 		float3 finalcolor = color * rcp(max(1.0 - max(color.r, max(color.g, color.b)), 0.1));
-		//return clamp(finalcolor, 0.0, 1.0);
+		finalcolor = clamp(finalcolor, 0.0, 500.0);
 		return finalcolor;
 	}
 	
@@ -252,7 +258,7 @@ namespace Lottes2
 	*/
     static const float a = 1.6;
     static const float d = 0.977;
-    static const float hdrMax = 100.0;
+    static const float hdrMax = 10.0;
     static const float midIn = 0.18;
     static const float midOut = 0.267;
 		
@@ -286,7 +292,7 @@ namespace Lottes2
 			((pow(hdrMax, a * d) - pow(midIn, a * d)) * midOut)));
 
 		// Clamp the tonemapped color to avoid out-of-range values
-		tonemapped = clamp(tonemapped, 0.0, 1.0);
+		tonemapped = clamp(tonemapped, 0.0, 500.0);
 
 		// Compute the inverse function to approximate the input color
 		float3 invTonemapped = pow(tonemapped / k, 2.2 / n);
@@ -326,7 +332,7 @@ namespace Unreal3
 {
 	float3 Apply(float3 color)
 	{
-		return color / (color + 0.155) * 1.019;
+		return color / (color + 0.155) * 1.019;		
 	}
 
 	float3 Inverse(float3 color)
@@ -341,50 +347,53 @@ namespace Fallout4
 	//http://enbseries.enbdev.com/forum/viewtopic.php?f=7&t=4695
 	//NOTE: It's highly adivsed to remove vanilla bloom in CK,
 	//Otherwise, it messes up the precison of MagicHDR bloom.
-	//Also, even without vanilla bloom, there seems to be a lot of precision lost,
-	//Manifesting in random bloom color shifts. Perhaps I did something wrong?
+																			   
+																		   
 
-	// Filmic operator.
+	// Shoulder Strength
 	static const float A = 0.3;
 
-	// Shoulder Strength.
+	// Linear Strength float
 	static const float B = 0.50;
 
-	// Linear Strength.
+	// Linear Angle float
 	static const float C = 0.10;
 
-	// Linear Angle.
+	// Toe Strength float 
 	static const float D = 0.10;
 
-	// Toe Strength, usually 0.02, (not static, modifiable in CK ImageSpaces!!!).
+	// Toe Numerator, usually 0.02, (not static, modifiable in CK ImageSpaces!!!).
 	static const float E = 0.02;
 
-	// Toe Numerator.
+	// Toe Denominator 
 	static const float F = 0.30;
 	
-	//Toe Denominator
+	// LinearWhite, white level 
 	static const float W = 5.6;
 	
-	//Max HDR Value for preventing "out of range" artifacts in the highlights
-	static const float max_value = 100.0;
+	// Max HDR Value for preventing "out of range" artifacts in the highlights
+	static const float max_value = 300.0;
  	
 	
 	float3 Apply(float3 color)
 	{
+		color = color / W;
 		color =
 		(
 			(color * (A * color + C * B) + D * E) /
 			(color * (A * color + B) + D * F)
 		) - E / F;
 		
-		color = saturate(color);
-
+		// Precise Linear to sRGB
+		// color = max(1.055 * pow(color, 0.416666667) - 0.055, 0);
+		color = clamp(color, 0.0, 1.0);
 		return color;
 	}
 	
 	float3 Inverse(float3 color)
 	{
-        
+		// Precise sRGB to Linear
+		// color = color * (color * (color * 0.305306011 + 0.682171111) + 0.012522878);
         color =
         (
             abs(
@@ -394,10 +403,10 @@ namespace Fallout4
                 4.0 * D * (F * F) * color * (A * E + A * F * color - A * F)))) /
             (2.0 * A * (E + F * color - F)))
         );
-
-        float3 finalcolor = color * W;
-        finalcolor = clamp(finalcolor, 0.0, max_value);
-        return finalcolor;
+        
+		color = color * W;
+		color = clamp(color, 0.0, max_value);
+        return color;
 	}
 
 }
@@ -417,7 +426,7 @@ namespace AMDLPM
     static const float highOut = 2.00;
     static const float lowIn = 0.001;
     static const float lowOut = 0.001;
-    static const float maxHDR = 100.00;
+    static const float maxHDR = 300.00;
     static const float3 R = float3(0.299, 0.587, 0.114);
     static const float3 W = float3(0.25, 0.25, 0.25);
 	static const float TonemapContrast = 1.00;
@@ -554,14 +563,14 @@ namespace Uchimura
 		float3 L = m + a * (color - m);
 
 		float3 result = T * w0 + L * w1 + S * w2;
-		//result = pow(result, 1.0/2.2);
-		result = clamp(result, 0.0,1.0);
+		//result = max(1.055 * pow(color, 0.416666667) - 0.055, 0);
+		result = saturate(result);
 		return result;
 	}
 
 	float3 Inverse(float3 color)
 	{
-		color = pow(color, 2.2);
+						  
 
 		float l0 = ((P - m) * l) / a;
 		float L0 = m - m / a;
@@ -582,7 +591,7 @@ namespace Uchimura
 		float3 result = T * w0 + L * w1 + S * w2;
 		result = pow(result / P, 1.0 / c) * P;
 
-		result = pow(result, 1.0 / 2.2);
+								  
 		result = clamp(result, 0.0, P);
 
 		return result;
@@ -628,7 +637,7 @@ namespace iCAM06m
 	* iCAM06m tonemapping formula that attempts to preserve a bit of saturation on highlights.
 	*/
 	
-		float3 Apply(float3 color)
+	float3 Apply(float3 color)
     {
         // Compute the luminance of the input color
         float L = dot(color, float3(0.2126, 0.7152, 0.0722));
@@ -670,17 +679,17 @@ namespace iCAM06m
             XYZtoRGB[3] * XYZ.x + XYZtoRGB[4] * XYZ.y + XYZtoRGB[5] * XYZ.z,
             XYZtoRGB[6] * XYZ.x + XYZtoRGB[7] * XYZ.y + XYZtoRGB[8] * XYZ.z);
 
-        // Apply gamma correction to convert the output from linear to sRGB color space
-        //color = pow(color, float(1.0 / 2.2));
+																					   
+											   
 		color = clamp(color, 0.0, 1.0);
 
         return color;
     }
 	
-		float3 Inverse(float3 color)
+	float3 Inverse(float3 color)
 	{
-        // Undo gamma correction to convert input from sRGB to linear color space
-        //color = pow(color, 2.2);
+																				 
+								  
 
         // Convert the input RGB values to XYZ color space
         float3 XYZ = float3(
@@ -706,13 +715,32 @@ namespace iCAM06m
         // Undo exposure adjustment
         RGB /= pow(2.0, (Exposure + (Exposure * 1.5)));
 
-        // Normalize the RGB values to range [0,1]
-        //RGB = clamp(RGB, 0.0, 1.0);
+												  
+									 
 
         return RGB;
 	}
 }
 
+namespace Linear 
+{
+	float3 Apply(float3 color)
+	{
+		 color = pow(color, 1.0 / 2.2);
+		// Precise Linear to sRGB
+		//color = max(1.055 * pow(color, 0.416666667) - 0.055, 0);
+		
+		return clamp(color, 0.0, 1.0);
+	}
+
+	float3 Inverse(float3 color)
+	{
+		 color = pow(color, 2.2);
+		// Precise sRGB to Linear
+		//color = color * (color * (color * 0.305306011 + 0.682171111) + 0.012522878);
+		return color;
+	}
+}
 
 float3 Apply(int type, float3 color)
 {
@@ -744,6 +772,8 @@ float3 Apply(int type, float3 color)
 			return ReinhardJodie::Apply(color);
 		case Type::iCAM06m:
 			return iCAM06m::Apply(color);
+		case Type::Linear:
+			return Linear::Apply(color);
 	}
 
 	return color;
@@ -779,6 +809,8 @@ float3 Inverse(int type, float3 color)
 			return ReinhardJodie::Inverse(color);
 		case Type::iCAM06m:
 			return iCAM06m::Inverse(color);
+		case Type::Linear:
+			return Linear::Inverse(color);
 	}
 
 	return color;
