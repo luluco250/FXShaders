@@ -241,17 +241,26 @@ float3 checkered_pattern(float2 uv)
 /**
  * Modify the saturation of a given RGB color.
  *
- * @param color THe RGB color to modify.
+ * @param color The RGB color to modify.
  * @param amount The amount of saturation to use.
  *               Setting it to 0.0 returns a fully grayscale color.
  *               Setting it to 1.0 returns the same color.
- *               Values above 1.0 will increase saturation as well as some
- *               brightness.
+ *               Values above 1.0 will increase saturation.
  */
 float3 ApplySaturation(float3 color, float amount)
 {
-	float gray = GetLumaLinear(color);
-	return gray + (color - gray) * amount;
+    float gray = GetLumaLinear(color);
+    float3 delta = color - gray;
+    float maxDelta = max(max(delta.r, delta.g), delta.b);
+    float minDelta = min(min(delta.r, delta.g), delta.b);
+    float deltaRange = maxDelta - minDelta;
+    float3 deltaSaturated = delta;
+    if (deltaRange > 0.0)
+    {
+        float3 scaleFactor = (maxDelta - delta) / deltaRange;
+        deltaSaturated = delta + scaleFactor * (deltaSaturated - delta);
+    }
+    return gray + deltaSaturated * amount;
 }
 
 /**
