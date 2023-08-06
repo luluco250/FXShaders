@@ -429,8 +429,6 @@ texture name##Tex <pooled = true;> \
 	Height = BUFFER_HEIGHT / DownsampleAmount.y / downscale; \
 	Format = RGBA16F; \
 	MipLevels = maxMip; \
-	AddressU = Border; \
-    AddressV = Border; \
 }; \
 \
 sampler name \
