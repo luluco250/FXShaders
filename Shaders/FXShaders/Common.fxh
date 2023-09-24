@@ -249,19 +249,35 @@ float3 checkered_pattern(float2 uv)
  */
 float3 ApplySaturation(float3 color, float amount)
 {
+    // Calculate the luminance of the original color.
     float gray = GetLumaLinear(color);
+
+    // Calculate the color difference from the luminance.
     float3 delta = color - gray;
+
+    // Calculate the maximum delta component.
     float maxDelta = max(max(delta.r, delta.g), delta.b);
-    float minDelta = min(min(delta.r, delta.g), delta.b);
-    float deltaRange = maxDelta - minDelta;
+
+    // Initialize deltaSaturated with the original delta.
     float3 deltaSaturated = delta;
-    if (deltaRange > 0.0)
+
+    // Ensure that maxDelta is positive and not too small to avoid artifacts.
+    if (maxDelta > 0.001)
     {
-        float3 scaleFactor = (maxDelta - delta) / deltaRange;
+        // Calculate a scaling factor based on the maximum delta.
+        float3 scaleFactor = maxDelta / max(maxDelta, 0.001); // Ensure no division by zero
+
+        // Apply the scaling factor to deltaSaturated.
         deltaSaturated = delta + scaleFactor * (deltaSaturated - delta);
     }
-    return gray + deltaSaturated * amount;
+
+    // Combine the gray luminance and the modified delta to get the final color.
+    float3 result = gray + deltaSaturated * amount;
+
+    // Output.
+    return result;
 }
+
 
 /**
  * Get a pseudo-random value from a given coordinate.
