@@ -10,16 +10,13 @@
 "Narkowicz ACES\0" \
 "Unreal3\0" \
 "Fallout4\0" \
-"AMDLPM\0" \
+"Frostbite\0" \
 "Uchimura\0" \
 "ReinhardJodie\0" \
 "iCAM06m\0" \
-"Linear\0"
-
-float FindMaxLuminance(float3 color)
-{
-    return max(max(color.r, color.g), color.b);
-}
+"HuePreserving\0" \
+"Linear\0" \
+"None\0"
 
 namespace FXShaders { namespace Tonemap
 {
@@ -35,11 +32,13 @@ namespace Type
 	static const int NarkowiczACES = 6;
 	static const int Unreal3 = 7;
 	static const int Fallout4 = 8;
-	static const int AMDLPM = 9;
+	static const int Frostbite = 9;
 	static const int Uchimura = 10;
 	static const int ReinhardJodie = 11;
 	static const int iCAM06m = 12;
-	static const int Linear = 13;
+	static const int HuePreserving = 13;
+	static const int Linear = 14;
+	static const int None = 15;
 }
 
 namespace Reinhard
@@ -97,7 +96,7 @@ namespace Reinhard
 
 namespace Reinhard2
 {
-	static const float L_white = 1.0;
+	static const float L_white = 1000000.0;
 	/**
 	* Alternative Reinhard tonemapping formula that allows whitepoint editing.
 	*/
@@ -111,7 +110,7 @@ namespace Reinhard2
 	*/
 	float3 Inverse(float3 color)
 	{
-		return (color * (1.0 + color)) / (1.0 + color / (L_white * L_white));
+		return (color * (1.0 + color)) / (1.0 + color / (L_white * L_white));	
 	}
 }
 
@@ -136,77 +135,34 @@ namespace Uncharted2Filmic
 	static const float F = 0.30;
 
 	// Whitepoint.
-	static const float W = 11.2;
+	//static const float W = 11.2;
 
 	float3 Apply(float3 color)
 	{
-		color = color / W;
+		color = color;
 		color =
 		(
 			(color * (A * color + C * B) + D * E) /
 			(color * (A * color + B) + D * F)
 		) - E / F;
-
-								
 		
-		color = saturate(color);
 		return color;
 	}
 
 	float3 Inverse(float3 color)
 	{
-								
-
 		abs(
 			((B * C * F - B * E - B * F * color) -
 			sqrt(
 				pow(abs(-B * C * F + B * E + B * F * color), 2.0) -
 				4.0 * D * (F * F) * color * (A * E + A * F * color - A * F))) /
 			(2.0 * A * (E + F * color - F)));
-		return color = color * W;
+		return color = color;
 	}
 }
 
 namespace BakingLabACES
 {
-	// sRGB => XYZ => D65_2_D60 => AP1 => RRT_SAT
-	static const float3x3 ACESInputMat = float3x3
-	(
-		0.59719, 0.35458, 0.04823,
-		0.07600, 0.90834, 0.01566,
-		0.02840, 0.13383, 0.83777
-	);
-
-	// ODT_SAT => XYZ => D60_2_D65 => sRGB
-	static const float3x3 ACESOutputMat = float3x3
-	(
-		1.60475, -0.53108, -0.07367,
-		-0.10208,  1.10813, -0.00605,
-		-0.00327, -0.07276,  1.07602
-	);
-
-	float3 RRTAndODTFit(float3 v)
-	{
-		float3 a = v * (v + 0.0245786f) - 0.000090537f;
-		float3 b = v * (0.983729f * v + 0.4329510f) + 0.238081f;
-		return a / b;
-	}
-
-	float3 ACESFitted(float3 color)
-	{
-		color = mul(ACESInputMat, color);
-
-		// Apply RRT and ODT
-		color = RRTAndODTFit(color);
-
-		color = mul(ACESOutputMat, color);
-
-		// Clamp to [0, 1]
-		color = saturate(color);
-
-		return color;
-	}
-
 	static const float A = 0.0245786;
 	static const float B = 0.000090537;
 	static const float C = 0.983729;
@@ -215,19 +171,18 @@ namespace BakingLabACES
 
 	float3 Apply(float3 color)
 	{
-		return saturate(
+		return
 			(color * (color + A) - B) /
-			(color * (C * color + D) + E));
+			(color * (C * color + D) + E);
 	}
 
 	float3 Inverse(float3 color)
 	{
-		return abs(
-			((A - D * color) -
-			sqrt(
-				pow(abs(D * color - A), 2.0) -
-				4.0 * (C * color - 1.0) * (B + E * color))) /
-			(2.0 * (C * color - 1.0)));
+        float3 discriminant = sqrt(color * color - 4.0 * (C * color - 1.0) * (B + E * color));
+        float3 numerator = A - D * color - discriminant;
+        float3 denominator = 2.0 * (C * color - 1.0);
+
+        return numerator / denominator;
 	}
 }
 
@@ -235,18 +190,12 @@ namespace Lottes
 {
 	float3 Apply(float3 color)
 	{
-		float3 finalcolor =  color * rcp(max(color.r, max(color.g, color.b)) + 1.0);
-		
-		//finalcolor = max(1.055 * pow(color, 0.416666667) - 0.055, 0);
-		
-		return finalcolor = clamp(finalcolor, 0.0, 1.0);
+		return color * rcp(max(color.r, max(color.g, color.b)) + 1.0);
 	}
 	
 	float3 Inverse(float3 color)
 	{
-		float3 finalcolor = color * rcp(max(1.0 - max(color.r, max(color.g, color.b)), 0.1));
-		finalcolor = clamp(finalcolor, 0.0, 500.0);
-		return finalcolor;
+		return color * rcp(max(1.0 - max(color.r, max(color.g, color.b)), 0.1));
 	}
 	
 }
@@ -258,7 +207,7 @@ namespace Lottes2
 	*/
     static const float a = 1.6;
     static const float d = 0.977;
-    static const float hdrMax = 10.0;
+    static const float hdrMax = 1000000.0;
     static const float midIn = 0.18;
     static const float midOut = 0.267;
 		
@@ -272,9 +221,7 @@ namespace Lottes2
         (pow(hdrMax, a * d) * pow(midIn, a) - pow(hdrMax, a) * pow(midIn, a * d) * midOut) /
         ((pow(hdrMax, a * d) - pow(midIn, a * d)) * midOut);
 	
-		float3 finalcolor = pow(color, a) / (pow(color, a * d) * b + c);
-		finalcolor = clamp(finalcolor, 0.0, 1.0);
-		return finalcolor;
+		return color = pow(color, a) / (pow(color, a * d) * b + c);
 	}
 	
 	float3 Inverse(float3 color)
@@ -290,10 +237,6 @@ namespace Lottes2
 			((pow(hdrMax, a * d) * pow(midIn, a) - pow(hdrMax, a) * 
 			pow(midIn, a * d) * midOut) / 
 			((pow(hdrMax, a * d) - pow(midIn, a * d)) * midOut)));
-
-		// Clamp the tonemapped color to avoid out-of-range values
-		tonemapped = clamp(tonemapped, 0.0, 500.0);
-
 		// Compute the inverse function to approximate the input color
 		float3 invTonemapped = pow(tonemapped / k, 2.2 / n);
 
@@ -311,8 +254,8 @@ namespace NarkowiczACES
 
 	float3 Apply(float3 color)
 	{
-		return saturate(
-			(color * (A * color + B)) / (color * (C * color + D) + E));
+		return 
+			(color * (A * color + B)) / (color * (C * color + D) + E);
 	}
 
 	float3 Inverse(float3 color)
@@ -337,7 +280,7 @@ namespace Unreal3
 
 	float3 Inverse(float3 color)
 	{
-		return (color * -0.155) / (max(color, 0.01) - 1.019);
+		return abs((color * -0.155) / (max(color, 0.01) - 1.019));
 	}
 }
 
@@ -347,8 +290,6 @@ namespace Fallout4
 	//http://enbseries.enbdev.com/forum/viewtopic.php?f=7&t=4695
 	//NOTE: It's highly adivsed to remove vanilla bloom in CK,
 	//Otherwise, it messes up the precison of MagicHDR bloom.
-																			   
-																		   
 
 	// Shoulder Strength
 	static const float A = 0.3;
@@ -369,31 +310,21 @@ namespace Fallout4
 	static const float F = 0.30;
 	
 	// LinearWhite, white level 
-	static const float W = 5.6;
-	
-	// Max HDR Value for preventing "out of range" artifacts in the highlights
-	static const float max_value = 300.0;
+	//static const float W = 4.2;
  	
 	
 	float3 Apply(float3 color)
 	{
-		color = color / W;
 		color =
 		(
 			(color * (A * color + C * B) + D * E) /
 			(color * (A * color + B) + D * F)
 		) - E / F;
-		
-		// Precise Linear to sRGB
-		// color = max(1.055 * pow(color, 0.416666667) - 0.055, 0);
-		color = clamp(color, 0.0, 1.0);
 		return color;
 	}
 	
 	float3 Inverse(float3 color)
 	{
-		// Precise sRGB to Linear
-		// color = color * (color * (color * 0.305306011 + 0.682171111) + 0.012522878);
         color =
         (
             abs(
@@ -403,144 +334,284 @@ namespace Fallout4
                 4.0 * D * (F * F) * color * (A * E + A * F * color - A * F)))) /
             (2.0 * A * (E + F * color - F)))
         );
-        
-		color = color * W;
-		color = clamp(color, 0.0, max_value);
         return color;
 	}
 
 }
 
-namespace AMDLPM
+namespace Frostbite
 {
-	/**
-	* AMD Lume Preserving Mapper written by ChatGPT AI. Can not guarantee that it is a proper implementation, needs more testing and research!
-	*/
-    static const float epsilon = 0.0001;
-    static const float epsilon2 = 0.00001;
-    static const float exposure = -0.50;
-    static const float shoulder = 0.5;
-    static const float midIn = 0.18;
-    static const float midOut = 0.18;
-    static const float highIn = 10.00;
-    static const float highOut = 2.00;
-    static const float lowIn = 0.001;
-    static const float lowOut = 0.001;
-    static const float maxHDR = 300.00;
-    static const float3 R = float3(0.299, 0.587, 0.114);
-    static const float3 W = float3(0.25, 0.25, 0.25);
-	static const float TonemapContrast = 1.00;
-	static const float Saturation = 0.25;
-	static const float3 SaturationCrosstalk = float3(1.0/1.0,1.0/4.0,1.0/32.0);
+    // Constants	
+    static const float PQ_constant_N = (2610.0 / 4096.0 / 4.0);
+    static const float PQ_constant_M = (2523.0 / 4096.0 * 128.0);
+    static const float PQ_constant_C1 = (3424.0 / 4096.0);
+    static const float PQ_constant_C2 = (2413.0 / 4096.0 * 32.0);
+    static const float PQ_constant_C3 = (2392.0 / 4096.0 * 32.0);
 
-    float3 Apply(float3 color)
+    // Helper Functions
+
+    // PQ (Perceptual Quantizer; ST.2084) encode/decode used for HDR TV and grading
+    float3 linearTOPQ(float3 linearCol, const float maxPqValue)
+    {
+        linearCol /= maxPqValue;
+
+        float3 colToPow = pow(linearCol, PQ_constant_N);
+        float3 numerator = PQ_constant_C1 + PQ_constant_C2 * colToPow;
+        float3 denominator = 1.0 + PQ_constant_C3 * colToPow;
+        float3 pq = pow(numerator / denominator, PQ_constant_M);
+
+        return pq;
+    }
+
+    float3 PQtoLinear(float3 linearCol, const float maxPqValue)
+    {
+        float3 colToPow = pow(linearCol, 1.0 / PQ_constant_M);
+        float3 numerator = max(colToPow, PQ_constant_C1);
+        float3 denominator = PQ_constant_C2 - (PQ_constant_C3 * colToPow);
+        float3 linearColor = pow(numerator / denominator, 1.0 / PQ_constant_N);
+
+        linearColor *= maxPqValue;
+        //return saturate(linearColor);
+        return linearColor;
+    }
+    
+	    float SCurve(float x)
 	{
-		float3 linearColor = color;
-		//float3 colorScaled = linearColor * maxHDR;
-		float3 colorScaled = clamp(linearColor, 0.0, maxHDR); //clamp the value to ensure it's in range
-
-		// Apply tonemapping curve to luminance
-		float luminance = dot(colorScaled, R);
-		float mappedLuminance;
-		if (luminance == 0.0)
-		mappedLuminance = ((luminance * 1.0 * 3.0) + W.r) / (luminance * (1.0 * 3.0) + 1.0 + epsilon);
-		else if (exposure > 0.0) // fix for negative exposure
-		mappedLuminance = ((luminance * exposure * 3.0) + W.r) / (luminance * (exposure * 3.0) + 1.0 + epsilon);
-		else // fix for negative exposure
-		mappedLuminance = ((luminance / (-exposure * 3.0) + W.r) / (luminance / (-exposure * 3.0) + 1.0 + epsilon));
-		
-		float exposureOffset = (exposure < 0 ? -1 : 1) * abs(lowOut); //add offset based on the sign of exposure
-		mappedLuminance = pow(mappedLuminance + exposureOffset, 1.0 / shoulder);
-		float3 mappedColor = colorScaled * (mappedLuminance / (luminance + epsilon));
-
-		// Apply LPM curve
-		float3 midInScaled = midIn / maxHDR;
-		float3 midOutScaled = midOut / maxHDR;
-		float3 highInScaled = highIn / maxHDR;
-		float3 highOutScaled = highOut / maxHDR;
-		float3 lowInScaled = lowIn / maxHDR;
-		float3 lowOutScaled = max(0.0001, lowOut - 0.05) / maxHDR;
-
-		float3 p = pow(mappedColor, shoulder);
-		float3 q = pow(midInScaled, shoulder) + p;
-		float3 r = pow(highInScaled, shoulder) + p;
-
-		float3 s = pow(lowOutScaled, shoulder);
-		float3 t = pow(midOutScaled, shoulder) + s;
-		float3 u = pow(highOutScaled, shoulder) + s;
-
-		float3 v = pow(q / (q + r), 2.0 / shoulder);
-		float3 w = pow(t / (t + u), 2.0 / shoulder);
-
-		float3 x = ((mappedColor - midInScaled) * v) + midInScaled;
-		float3 y = ((mappedColor - midOutScaled) * w) + midOutScaled;
-		//float3 z = clamp(y, 0.0, 1.0);
-		
-		// Apply saturation and saturation crosstalk
-		float3 mappedColorScaled = (y * (highOutScaled - lowOutScaled)) + lowOutScaled;
-		float3 tonemappedColor = lerp(mappedColorScaled, mappedColor, TonemapContrast);
-		
-		float3 average = dot(tonemappedColor, R);
-		float3 desaturated = lerp(average, tonemappedColor, clamp(Saturation, 0.0, 1.0));
-		float3 saturated = lerp(desaturated, tonemappedColor, clamp(Saturation, 0.0, 1.0));
-		float3 saturationCrosstalk = SaturationCrosstalk * (1.0 - Saturation);
-		float3 saturationAdjusted = saturated + saturationCrosstalk * (desaturated - average);
-
-		tonemappedColor = saturate(saturationAdjusted);
-		float3 finalcolor = tonemappedColor;
-
-    return finalcolor;
+	    float a = 2.51;
+	    float b = 0.03;
+	    float c = 2.43;
+	    float d = 0.59;
+	    float e = 0.14;
 	
+	    x = max(x, 0.0);
+	    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+	}
+	
+	float3 DScurve(float3 x)
+	{
+	    float a = 2.51;
+	    float b = 0.03;
+	    float c = 2.43;
+	    float d = 0.59;
+	    float e = 0.14;
+	
+	    x = max(x, 0.0);
+	    float3 r = (x * (c * x + d) + e);
+	    return (a * x * (d * x + 2.0 * e) + b * (e - c * x * x)) / (r * r);
+	}
+
+    // RGB with SRGB/Rec.709 primaries to CIE XYZ
+    float3 RGBTOXYZ(float3 c)
+    {
+        float3x3 mat = float3x3(
+			0.4124564, 0.3575761, 0.1804375,
+	        0.2126729, 0.7151522, 0.0721750,
+	        0.0193339, 0.1191920, 0.9503041
+		);
+
+        return float3(
+            dot(mat[0], c),
+            dot(mat[1], c),
+            dot(mat[2], c)
+        );
+    }
+    
+    float3 XYZTORGB(float3 c)
+	{
+	    
+		float3x3 mat = float3x3(
+			3.24045483602140870, -1.53713885010257510, -0.49853154686848090,
+			-0.96926638987565370, 1.87601092884249100, 0.04155608234667354,
+			0.05564341960421366,  -0.20402585426769815, 1.05722516245792870
+		);
+	
+        return float3(
+            dot(mat[0], c),
+            dot(mat[1], c),
+            dot(mat[2], c)
+        );
+	}
+
+    // Converts XYZ tristimulus values into cone responses for the three types of cones in the human visual system, matching long, medium, and short wavelengths.
+    // Note that there are many LMS color spaces; this one follows the ICtCp color space specification.
+    float3 XYZTOLMS(float3 c)
+    {
+        float3x3 mat = float3x3(
+			0.3592, 0.6976, -0.0358,
+	        -0.1922, 1.1004, 0.0755,
+	        0.0070, 0.0749, 0.8434
+		);
+
+        return float3(
+            dot(mat[0], c),
+            dot(mat[1], c),
+            dot(mat[2], c)
+        );
+    }
+
+    float3 LMSTOXYZ(float3 c)
+    {
+        float3x3 mat = float3x3(
+			2.07018005669561320, -1.32645687610302100, 0.206616006847855170,
+	        0.36498825003265756, 0.68046736285223520, -0.045421753075853236,
+	        -0.04959554223893212, -0.04942116118675749, 1.187995941732803400
+		);
+
+        return float3(
+            dot(mat[0], c),
+            dot(mat[1], c),
+            dot(mat[2], c)
+        );
+    }
+
+    // RGB with SRGB/Rec.709 primaries to ICtCp
+    float3 RGBTOICtCp(float3 col)
+    {
+        col = RGBTOXYZ(col);
+        col = XYZTOLMS(col);
+        // 1.0f 100 nits, 100.0f 10k nits
+        col = linearTOPQ(max(0.0.xxx, col), 100);
+
+        // Convert PQ-LMS into ICtCp. Note that the "s" channel is not used,
+        // but overlap between the cone responses for long, medium, and short wavelengths
+        // ensures that the corresponding part of the spectrum contributes to luminance.
+        float3x3 mat = float3x3(
+			0.5000, 0.5000, 0.0000,
+	        1.6137, -3.3234, 1.7097,
+	        4.3780, -4.2455, -0.1325
+		);
+
+        return float3(
+            dot(mat[0], col),
+            dot(mat[1], col),
+            dot(mat[2], col)
+        );
+    }
+
+    float3 ICtCpTORGB(float3 col)
+    {
+        float3x3 mat = float3x3(
+			1.0, 0.00860514569398152, 0.11103560447547328,
+			1.0, -0.00860514569398152, -0.11103560447547328,
+			1.0, 0.56004885956263900, -0.32063747023212210
+		);
+
+        col = float3(
+            dot(mat[0], col),
+            dot(mat[1], col),
+            dot(mat[2], col)
+        );
+        // 1.0f 100 nits, 100.0f = 10k nits
+        col = PQtoLinear(col, 0.00080);
+        col = LMSTOXYZ(col);
+        return XYZTORGB(col);
+    }
+
+    // Aplies exponential ("Photographic") luma compression
+    float rangeCompress(float x)
+    {
+        return 1.0 - exp(-x);
+    }
+
+    float rangeCompress(float val, float threshold)
+    {
+        float vl = val;
+        float v2 = threshold + (1 - threshold) * rangeCompress((val - threshold) / (1 - threshold));
+        return val < threshold ? vl : v2;
+    }
+
+    float3 rangeCompress(float3 val, float threshold)
+    {
+        return float3(
+            rangeCompress(val.x, threshold),
+            rangeCompress(val.y, threshold),
+            rangeCompress(val.z, threshold)
+        );
+    }
+
+	// Code: Display Mapper
+	float3 Apply(float3 color)
+	{
+	    float3 ictcp = RGBTOICtCp(color);
+	
+	    // Hue-preserving range compression requires desaturation in order to achieve a natural look. We adaptively desaturate the input based on its luminance. 
+	    float saturationAmount = pow(smoothstep(1.0, 0.3, ictcp.x), 1.3);
+	    color = ICtCpTORGB(ictcp * float3(1, saturationAmount, saturationAmount));
+	
+	    // Only compress luminance starting at a certain point. Dimmer inputs are passed through without modification.
+	    float linearSegmentEnd = 0.25;
+	
+	    // Hue-preserving mapping
+	    float maxCol = max(color.x, max(color.y, color.z));
+	    float mappedMax = rangeCompress(maxCol, linearSegmentEnd);
+	    float3 compressedHuePreserving = color * mappedMax / maxCol;
+	
+	    // Non-hue preserving mapping
+	    float3 perChannelCompressed = rangeCompress(color, linearSegmentEnd);
+	
+	    // Combine hue-preserving and non-hue-preserving colors. Absolute hue preservation looks unnatural, as bright colors appear to have been hue shifted. 
+	    // Actually doing some amount of hue shifting looks more pleasing 
+	    color = lerp(perChannelCompressed, compressedHuePreserving, 0.6);
+	
+	    float3 ictcpMapped = RGBTOICtCp(color);
+	
+	    // Smoothly ramp off saturation as brightness increases, but keep some even for very bright input
+	    float postCompressionSaturationBoost = 0.3 * smoothstep(1.0, 0.5, ictcp.x);
+	
+	    // Re-introduce some hue from the pre-compression color. Something similar could be accomplished by delaying the luma-dependent desaturation before range compression.
+	    // Doing it here, however, does a better job of preserving perceptual luminance of highly saturated colors. Because in the hue-preserving path, we only range-compress the max channel, 
+	    // saturated colors lose luminance. By desaturating them more aggressively first, compressing, and then re-adding some saturation, we can preserve their brightness to a greater extent.
+	    ictcpMapped.yz = lerp(ictcpMapped.yz, ictcp.yz * ictcpMapped.x / max(1e-3, ictcp.x), postCompressionSaturationBoost);
+	
+	    color = ICtCpTORGB(ictcpMapped);
+	    return color;
 	}
 	
 	float3 Inverse(float3 color)
-	{	 
-		// Reverse the saturation adjustment
-		float3 average = dot(color, R);
-		float3 desaturated = lerp(average, color, clamp(Saturation, 0.0, 1.0));
-		float3 saturated = lerp(desaturated, color, clamp(Saturation, 0.0, 1.0));
-		float3 saturationCrosstalk = SaturationCrosstalk + (SaturationCrosstalk / (1.0 - Saturation));
-		float3 saturationAdjusted = saturated + saturationCrosstalk * (desaturated - average);
-		
-		// Reverse the LPM curve
-		float3 midInScaled = midIn / maxHDR;
-		float3 midOutScaled = midOut / maxHDR;
-		float3 highInScaled = highIn / maxHDR;
-		float3 highOutScaled = highOut / maxHDR;
-		float3 lowInScaled = lowIn / maxHDR;
-		float3 lowOutScaled = max(0.0001, lowOut - 0.05) / maxHDR;
-
-		float3 p = pow(saturationAdjusted, 1.0 / shoulder);
-		float3 q = pow(midInScaled, 1.0 / shoulder) + p;
-		float3 r = pow(highInScaled, 1.0 / shoulder) + p;
-
-		float3 s = pow(lowOutScaled, 1.0 / shoulder);
-		float3 t = pow(midOutScaled, 1.0 / shoulder) + s;
-		float3 u = pow(highOutScaled, 1.0 / shoulder) + s;
-
-		float3 v = pow(q / (q + r), 0.5 * shoulder);
-		float3 w = pow(t / (t + u), 0.5 * shoulder);
-
-		float3 x = ((saturationAdjusted - midInScaled) / v) + midInScaled;
-		float3 y = ((saturationAdjusted - midOutScaled) / w) + midOutScaled;
-
-		// Reverse the tonemapping curve
-		float3 linearColor = y / (1.0 + (shoulder * pow(y, 1.0 - TonemapContrast)));
-		float3 colorScaled = clamp(linearColor, 0.0, maxHDR); //clamp the value to ensure it's in range
-		return colorScaled;
+	{
+	    // Reverse the saturation adjustment
+	    float3 ictcp = RGBTOICtCp(color);
+	    float initialSaturationAmount = pow(smoothstep(1.0, 0.3, ictcp.x), 1.3);
+	    ictcp.yz /= float2(initialSaturationAmount, initialSaturationAmount); // Reverse the saturation scaling
+	
+	    // Reverse the luminance compression
+	    float linearSegmentEnd = 0.25;
+	    float maxCol = max(color.x, max(color.y, color.z));
+	    float mappedMax = rangeCompress(maxCol, linearSegmentEnd);
+	    float3 uncompressedColor = color / mappedMax * maxCol; // Reverse the luminance compression
+	
+	    // Blend between hue-preserving and non-hue-preserving colors
+	    float3 perChannelUncompressed = rangeCompress(uncompressedColor, linearSegmentEnd);
+	    float3 compressedHuePreserving = uncompressedColor * mappedMax / maxCol; // Reverse the hue-preserving compression
+	    float blendFactor = 0.6;
+	    color = lerp(perChannelUncompressed, compressedHuePreserving, blendFactor);
+	
+	    // Reverse the saturation boost
+	    float postCompressionSaturationBoost = 0.3 * smoothstep(1.0, 0.5, ictcp.x);
+	    ictcp.yz /= float2(1.0 + postCompressionSaturationBoost, 1.0 + postCompressionSaturationBoost); // Reverse the saturation boost
+	
+	    // Convert back from ICtCp to RGB
+	    color = ICtCpTORGB(ictcp);
+	
+	    // Convert back from HDR to linear
+	    color = PQtoLinear(color, 0.00080);
+	    
+	    return color;
 	}
+
 }
+
 
 namespace Uchimura
 {
 	/**
 	* Grand Tourismo Tonemapping.
 	*/
-    static const float P = 300.0;  // max display brightness
-    static const float a = 0.5;  // contrast
+    static const float P = 1000000;  // max display brightness
+    static const float a = 1.0;  // contrast
     static const float m = 0.22; // linear section start
-    static const float l = 0.55;  // linear section length
-    static const float c = 1.1; // black
+    static const float l = 0.4;  // linear section length
+    static const float c = 1.33; // black
     static const float b = 0.0;  // pedestal
 	
 	float3 Apply(float3 color)
@@ -563,14 +634,11 @@ namespace Uchimura
 		float3 L = m + a * (color - m);
 
 		float3 result = T * w0 + L * w1 + S * w2;
-		//result = max(1.055 * pow(color, 0.416666667) - 0.055, 0);
-		result = saturate(result);
 		return result;
 	}
 
 	float3 Inverse(float3 color)
 	{
-						  
 
 		float l0 = ((P - m) * l) / a;
 		float L0 = m - m / a;
@@ -591,8 +659,7 @@ namespace Uchimura
 		float3 result = T * w0 + L * w1 + S * w2;
 		result = pow(result / P, 1.0 / c) * P;
 
-								  
-		result = clamp(result, 0.0, P);
+		//result = clamp(result, 0.0, P);
 
 		return result;
 	}
@@ -610,7 +677,6 @@ namespace ReinhardJodie
 		float3 l = dot(color, luma);
 		float3 tc=color/(color+1.);
 		float3 finalcolor = lerp(color/(l+1.),tc,tc);
-		finalcolor = clamp(finalcolor, 0.0, 1.0);
 		
 		return finalcolor;
 	}
@@ -679,17 +745,11 @@ namespace iCAM06m
             XYZtoRGB[3] * XYZ.x + XYZtoRGB[4] * XYZ.y + XYZtoRGB[5] * XYZ.z,
             XYZtoRGB[6] * XYZ.x + XYZtoRGB[7] * XYZ.y + XYZtoRGB[8] * XYZ.z);
 
-																					   
-											   
-		color = clamp(color, 0.0, 1.0);
-
         return color;
     }
 	
 	float3 Inverse(float3 color)
 	{
-																				 
-								  
 
         // Convert the input RGB values to XYZ color space
         float3 XYZ = float3(
@@ -715,29 +775,350 @@ namespace iCAM06m
         // Undo exposure adjustment
         RGB /= pow(2.0, (Exposure + (Exposure * 1.5)));
 
-												  
-									 
-
         return RGB;
 	}
+}
+
+//
+// https://www.shadertoy.com/view/fsXcz4
+//
+namespace HuePreserving 
+{
+    static const float softness_scale = 0.2; // controls softness of RGB clipping
+    static const float offset = 0.75; // controls how colors desaturate as they brighten. 0 results in that colors never fluoresce, 1 in very saturated colors 
+    static const float chroma_scale = 1.2; // overall scale of chroma
+
+    float3 s_curve(float3 x)
+    {
+        float a = 2.51;
+        float b = 0.03;
+        float c = 2.43;
+        float d = 0.59;
+        float e = 0.14;
+        x = max(x, 0.0);
+        return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+    }
+
+    float3 d_s_curve(float3 x)
+    {
+        float a = 2.51;
+        float b = 0.03;
+        float c = 2.43;
+        float d = 0.59;
+        float e = 0.14;
+        x = max(x, 0.0);
+        float3 r = (x * (c * x + d) + e);
+        return (a * x * (d * x + 2.0 * e) + b * (e - c * x * x)) / (r * r);
+    }
+
+    float2 findCenterAndPurity(float3 x)
+    {
+        // Define the matrix M
+        float3x3 M = float3x3(
+            2.26775149, -1.43293879, 0.1651873,
+            -0.98535505, 2.1260072, -0.14065215,
+            -0.02501605, -0.26349465, 1.2885107
+        );
+
+        x = float3(
+		    dot(x, M[0]),
+		    dot(x, M[1]),
+		    dot(x, M[2])
+		);
+
+        float x_min = min(x.r,min(x.g,x.b));
+        float x_max = max(x.r,max(x.g,x.b));
+
+        float c = 0.5 * (x_max + x_min);
+        float s = (x_max - x_min);
+
+        // Math trickery to create values close to c and s, but without producing hard edges
+        float3 y = (x - c) / s;
+        float c_smooth = c + dot(y * y * y, 1.0 / 3.0) * s;
+        float s_smooth = sqrt(dot(x - c_smooth, x - c_smooth) / 2.0);
+        return float2(c_smooth, s_smooth);
+    }
+
+    float3 toLms(float3 c)
+    {
+        float3x3 rgbToLms = float3x3(
+            0.4122214708, 0.5363325363, 0.0514459929,
+            0.2119034982, 0.6806995451, 0.1073969566,
+            0.0883024619, 0.2817188376, 0.6299787005
+        );
+
+        float3 lms_ =float3(
+		    dot(c, rgbToLms[0]),
+		    dot(c, rgbToLms[1]),
+		    dot(c, rgbToLms[2])
+		);
+        return sign(lms_) * pow(abs(lms_), 1.0 / 3.0);
+    }
+
+	float calculateC(float3 lms)
+	{	
+	    float a = 1.9779984951 * lms.x - 2.4285922050 * lms.y + 0.4505937099 * lms.z;
+	    float b = 0.0259040371 * lms.x + 0.7827717662 * lms.y - 0.8086757660 * lms.z;
+	
+	    return sqrt(a * a + b * b);
+	}
+
+
+    float2 calculateMC(float3 c)
+    {
+        float3 lms = toLms(c);
+
+        float M = findCenterAndPurity(lms).x;
+
+        return float2(M, calculateC(lms));
+    }
+
+    float2 expandShape(float3 rgb, float2 ST)
+    {
+        float2 MC = calculateMC(rgb);
+        float2 STnew = float2((MC.x) / MC.y, (1.0 - MC.x) / MC.y);
+        STnew = (STnew + 3.0 * STnew * STnew * MC.y);
+
+        return float2(min(ST.x, STnew.x), min(ST.y, STnew.y));
+    }
+
+    float expandScale(float3 rgb, float2 ST, float scale)
+    {
+        float2 MC = calculateMC(rgb);
+        float Cnew = (1.0 / ((ST.x / (MC.x)) + (ST.y / (1.0 - MC.x))));
+
+        return max(MC.y / Cnew, scale);
+    }
+
+    float2 approximateShape()
+    {
+        float m = -softness_scale * 0.2;
+        float s = 1.0 + (softness_scale * 0.2 + softness_scale * 0.8);
+
+        float2 ST = float2(1000.0, 1000.0);
+        ST = expandShape(m + s * float3(1.0, 0.0, 0.0), ST);
+        ST = expandShape(m + s * float3(1.0, 1.0, 0.0), ST);
+        ST = expandShape(m + s * float3(0.0, 1.0, 0.0), ST);
+        ST = expandShape(m + s * float3(0.0, 1.0, 1.0), ST);
+        ST = expandShape(m + s * float3(0.0, 0.0, 1.0), ST);
+        ST = expandShape(m + s * float3(1.0, 0.0, 1.0), ST);
+
+        float scale = 0.0;
+        scale = expandScale(m + s * float3(1.0, 0.0, 0.0), ST, scale);
+        scale = expandScale(m + s * float3(1.0, 1.0, 0.0), ST, scale);
+        scale = expandScale(m + s * float3(0.0, 1.0, 0.0), ST, scale);
+        scale = expandScale(m + s * float3(0.0, 1.0, 1.0), ST, scale);
+        scale = expandScale(m + s * float3(0.0, 0.0, 1.0), ST, scale);
+        scale = expandScale(m + s * float3(1.0, 0.0, 1.0), ST, scale);
+
+        return ST / scale;
+    }
+
+    float3 tonemap_hue_preserving(float3 c)
+    {
+        float3x3 toLms = float3x3(
+            0.4122214708, 0.5363325363, 0.0514459929,
+            0.2119034982, 0.6806995451, 0.1073969566,
+            0.0883024619, 0.2817188376, 0.6299787005);
+
+        float3x3 fromLms = float3x3(
+            +4.0767416621, -3.3077115913, +0.2309699292,
+            -1.2684380046, +2.6097574011, -0.3413193965,
+            -0.0041960863, -0.7034186147, +1.7076147010);
+
+        float3 lms_ = float3(
+		    dot(c, toLms[0]),
+		    dot(c, toLms[1]),
+		    dot(c, toLms[2])
+		);
+        float3 lms = sign(lms_) * pow(abs(lms_), 1.0 / 3.0);
+
+        float2 MP = findCenterAndPurity(lms);
+
+        // Apply tone curve
+
+        // Approach 1: scale chroma based on the derivative of the chroma curve
+        if (true)
+        {
+            float I = (MP.x + (1.0 - offset) * MP.y);
+            lms = lms * I * I;
+
+            I = I * I * I;
+            float3 dLms = lms - I;
+
+            float Icurve = s_curve(float3(I, I, I)).x;
+            lms = 1.0 + chroma_scale * dLms * d_s_curve(float3(I, I, I)) / Icurve;
+            I = pow(Icurve, 1.0 / 3.0);
+
+            lms = lms * I;
+        }
+
+        // Approach 2: Separate color into a whiteness/blackness part, apply scale to them independently
+        if (false)
+        {
+            lms = chroma_scale * (lms - MP.x) + MP.x;
+
+            float invBlackness = (MP.x + MP.y);
+            float whiteness = (MP.x - MP.y);
+
+            float invBlacknessC = pow(s_curve(float3(invBlackness, invBlackness, invBlackness)).x, 1.0 / 3.0);
+            float whitenessC = pow(s_curve(float3(whiteness, whiteness, whiteness)).x, 1.0 / 3.0);
+
+            lms = (invBlacknessC + whitenessC) / 2.0 + (lms - (invBlackness + whiteness) / 2.0) * (invBlacknessC - whitenessC) / (invBlackness - whiteness);
+        }
+
+        // Compress to a smooth approximation of the target gamut
+        {
+        float M = findCenterAndPurity(lms).x;
+        float2 ST = approximateShape();
+        float C_smooth_gamut = (1.0) / ((ST.x / M) + (ST.y / (1.0 - M)));
+        float C = calculateC(lms);
+
+        // Adjust the line below to change the compression of chroma values
+        lms = (lms - M) / sqrt(C * C / C_smooth_gamut / C_smooth_gamut + 1.0) + M;
+        }
+
+        float3 rgb = float3(
+		    dot(lms * lms * lms, fromLms[0]),
+		    dot(lms * lms * lms, fromLms[1]),
+		    dot(lms * lms * lms, fromLms[2])
+		);
+
+        return rgb;
+    }
+
+    float3 softSaturate(float3 x, float3 a)
+    {
+        a = clamp(a, 0.0, softness_scale);
+        a = 1.0 + a;
+        x = min(x, a);
+        float3 b = (a - 1.0) * sqrt(a / (2.0 - a));
+        return 1.0 - (sqrt((x - a) * (x - a) + b * b) - b) / (sqrt(a * a + b * b) - b);
+    }
+
+    float3 softClipColor(float3 color)
+    {
+        // Soft clip of RGB values to avoid artifacts of hard clipping
+        // Causes hue distortions, but is a smooth mapping
+        // Not quite sure this mapping is easy to invert, but should be possible to construct similar ones that do
+
+        float grey = 0.2;
+
+        float3 x = color - grey;
+
+        float3 xsgn = sign(x);
+        float3 xscale = 0.5 + xsgn * (0.5 - grey);
+        x /= xscale;
+
+        float maxRGB = max(color.r, max(color.g, color.b));
+        float minRGB = min(color.r, min(color.g, color.b));
+
+        float softness_0 = maxRGB / (1.0 + softness_scale) * softness_scale;
+        float softness_1 = (1.0 - minRGB) / (1.0 + softness_scale) * softness_scale;
+
+        float3 softness = 0.5 * (softness_0 + softness_1 + xsgn * (softness_1 - softness_0));
+
+        return grey + xscale * xsgn * softSaturate(abs(x), softness);
+    }
+
+    float3 Apply(float3 color)
+    {
+        color = tonemap_hue_preserving(color);
+        color = softClipColor(color);
+        return color;
+    }
+	
+	float3 Inverse(float3 color)
+	{
+	    float grey = 0.2;
+	    float3 x = color - grey;
+	    float3 xsgn = sign(x);
+	    float3 xscale = 0.5 + xsgn * (0.5 - grey);
+	    x /= xscale;
+	
+	    float maxRGB = max(color.r, max(color.g, color.b));
+	    float minRGB = min(color.r, min(color.g, color.b));
+	    float softness_0 = maxRGB / (1.0 + softness_scale) * softness_scale;
+	    float softness_1 = (1.0 - minRGB) / (1.0 + softness_scale) * softness_scale;
+	    float3 softness = 0.5 * (softness_0 + softness_1 + xsgn * (softness_1 - softness_0));
+	
+	    float3 result = grey + xscale * xsgn * softSaturate(abs(x), softness);
+	
+	    float3x3 toLms = float3x3(
+	        0.4122214708, 0.5363325363, 0.0514459929,
+	        0.2119034982, 0.6806995451, 0.1073969566,
+	        0.0883024619, 0.2817188376, 0.6299787005);
+	
+	    float3x3 fromLms = float3x3(
+	        +4.0767416621, -3.3077115913, +0.2309699292,
+	        -1.2684380046, +2.6097574011, -0.3413193965,
+	        -0.0041960863, -0.7034186147, +1.7076147010);
+	
+	    float3 lms_ = float3(
+	        dot(result, toLms[0]),
+	        dot(result, toLms[1]),
+	        dot(result, toLms[2])
+	    );
+	
+	    float3 lms = sign(lms_) * pow(abs(lms_), 1.0 / 3.0);
+	
+	    float2 MP = findCenterAndPurity(lms);
+	
+	    float3 invertedLms = lms;
+	
+	    // Reverse the tonemapping operations while preserving luminance
+	    {
+	        float M = findCenterAndPurity(lms).x;
+	        float2 ST = approximateShape();
+	        float C_smooth_gamut = (1.0) / ((ST.x / M) + (ST.y / (1.0 - M)));
+	        float C = calculateC(lms);
+	
+	        // Adjust the line below to change the compression of chroma values
+	        invertedLms = (lms - M) / sqrt(C * C / C_smooth_gamut / C_smooth_gamut + 1.0) + M;
+	    }
+	
+	    float3 invertedRgb = float3(
+	        dot(invertedLms * invertedLms * invertedLms, fromLms[0]),
+	        dot(invertedLms * invertedLms * invertedLms, fromLms[1]),
+	        dot(invertedLms * invertedLms * invertedLms, fromLms[2])
+	    );
+	
+	    // Clamp to ensure values stay within the range
+	
+	    return invertedRgb;
+	}
+
+
 }
 
 namespace Linear 
 {
 	float3 Apply(float3 color)
 	{
-		 color = pow(color, 1.0 / 2.2);
+		color = pow(color, 1.0 / 2.2);
 		// Precise Linear to sRGB
 		//color = max(1.055 * pow(color, 0.416666667) - 0.055, 0);
-		
-		return clamp(color, 0.0, 1.0);
+		return color;
 	}
 
 	float3 Inverse(float3 color)
 	{
-		 color = pow(color, 2.2);
+		color = pow(color, 2.2);
 		// Precise sRGB to Linear
 		//color = color * (color * (color * 0.305306011 + 0.682171111) + 0.012522878);
+		return color;
+	}
+}
+
+namespace None 
+{
+	float3 Apply(float3 color)
+	{
+		return color;
+	}
+
+	float3 Inverse(float3 color)
+	{
 		return color;
 	}
 }
@@ -764,16 +1145,20 @@ float3 Apply(int type, float3 color)
 			return Unreal3::Apply(color);
 		case Type::Fallout4:
 			return Fallout4::Apply(color);
-		case Type::AMDLPM:
-			return AMDLPM::Apply(color);
+		case Type::Frostbite:
+			return Frostbite::Apply(color);
 		case Type::Uchimura:
 			return Uchimura::Apply(color);
 		case Type::ReinhardJodie:
 			return ReinhardJodie::Apply(color);
 		case Type::iCAM06m:
 			return iCAM06m::Apply(color);
+		case Type::HuePreserving:
+			return HuePreserving::Apply(color);
 		case Type::Linear:
 			return Linear::Apply(color);
+		case Type::None:
+			return None::Apply(color);
 	}
 
 	return color;
@@ -801,16 +1186,20 @@ float3 Inverse(int type, float3 color)
 			return Unreal3::Inverse(color);
 		case Type::Fallout4:
 			return Fallout4::Inverse(color);
-		case Type::AMDLPM:
-			return AMDLPM::Inverse(color);
+		case Type::Frostbite:
+			return Frostbite::Inverse(color);
 		case Type::Uchimura:
 			return Uchimura::Inverse(color);
 		case Type::ReinhardJodie:
 			return ReinhardJodie::Inverse(color);
 		case Type::iCAM06m:
 			return iCAM06m::Inverse(color);
+		case Type::HuePreserving:
+			return HuePreserving::Inverse(color);
 		case Type::Linear:
 			return Linear::Inverse(color);
+		case Type::None:
+			return None::Inverse(color);
 	}
 
 	return color;
