@@ -66,12 +66,14 @@ static const int
 	InvTonemap_NarkowiczACES = 6,
 	InvTonemap_Unreal3 = 7,
 	InvTonemap_Fallout4 = 8,
-	InvTonemap_AMDLPM = 9,
+	InvTonemap_Frostbite = 9,
 	InvTonemap_Uchimura = 10,
 	InvTonemap_ReinhardJodie = 11,
 	InvTonemap_iCAM06m = 12,
-	InvTonemap_Linear = 13;
-
+	InvTonemap_HuePreserving = 13,
+	InvTonemap_Linear = 14,
+	InvTonemap_None = 15;
+	
 static const int
 	Tonemap_Reinhard = 0,
 	Tonemap_Reinhard2 = 1,
@@ -82,11 +84,13 @@ static const int
 	Tonemap_NarkowiczACES = 6,
 	Tonemap_Unreal3 = 7,
 	Tonemap_Fallout4 = 8,
-	Tonemap_AMDLPM = 9,
+	Tonemap_Frostbite = 9,
 	Tonemap_Uchimura = 10,
 	Tonemap_ReinhardJodie = 11,
 	Tonemap_iCAM06m = 12,
-	Tonemap_Linear = 13;
+	Tonemap_HuePreserving = 13,
+	Tonemap_Linear = 14,
+	Tonemap_None = 15;
 	
 static const int 
 	Additive = 0,
@@ -137,8 +141,8 @@ uniform float InputExposure
 		"This value is measured in f-stops.\n"
 		"\nDefault: 1.0";
 	ui_type = "slider";
-	ui_min = -3.0;
-	ui_max = 3.0;
+	ui_min = -10.0;
+	ui_max = 10.0;
 > = 0.0;
 
 uniform float Exposure
@@ -150,8 +154,8 @@ uniform float Exposure
 		"This value is measured in f-stops.\n"
 		"\nDefault: 1.0";
 	ui_type = "slider";
-	ui_min = -3.0;
-	ui_max = 3.0;
+	ui_min = -10.0;
+	ui_max = 10.0;
 > = 0.0;
 
 uniform int InvTonemap
@@ -163,8 +167,21 @@ uniform int InvTonemap
 		"\nDefault: Reinhard";
 	ui_type = "combo";
 	ui_items =
-		"Reinhard\0Reinhard2\0Uncharted 2 Filmic\0Baking Lab ACES\0Lottes\0Lottes2\0Narkowicz ACES\0Unreal 3\0Fallout4\0AMDLPM\0Uchimura\0ReinhardJodie\0iCAM06m\0Linear\0";
+		"Reinhard\0Reinhard2\0Uncharted 2 Filmic\0Baking Lab ACES\0Lottes\0Lottes2\0Narkowicz ACES\0Unreal 3\0Fallout4\0Frostbite\0Uchimura\0ReinhardJodie\0iCAM06m\0HuePreserving\0Linear\0None\0";
 > = InvTonemap_Reinhard;
+
+uniform float MaxNitsInverse
+<
+	ui_category = "Tonemapping";
+	ui_label = "Max Nits Input";
+	ui_tooltip =
+		"Value of nits output before tonemapping, potential maximum HDR value a game might output. On SDR, values around 100-1000 seem to work the best.\n"
+		"\nDefault: 10000 nits";
+	ui_type = "slider";
+	ui_min = 0.0;
+	ui_max = 100000.0;
+	ui_step = 100.0;
+> = 10000.0;
 
 uniform int Tonemap
 <
@@ -172,11 +189,25 @@ uniform int Tonemap
 	ui_label = "Output Tonemapper";
 	ui_tooltip =
 		"The tonemapping operator applied at the end of the effect.\n"
+		"\nIt is highly suggested to choose 'none' in true HDR display.\n"
 		"\nDefault: Baking Lab ACES";
 	ui_type = "combo";
 	ui_items =
-		"Reinhard\0Reinhard2\0Uncharted 2 Filmic\0Baking Lab ACES\0Lottes\0Lottes2\0Narkowicz ACES\0Unreal 3\0Fallout4\0AMDLPM\0Uchimura\0ReinhardJodie\0iCAM06m\0Linear\0";
-> = Tonemap_BakingLabACES;
+		"Reinhard\0Reinhard2\0Uncharted 2 Filmic\0Baking Lab ACES\0Lottes\0Lottes2\0Narkowicz ACES\0Unreal 3\0Fallout4\0Frostbite\0Uchimura\0ReinhardJodie\0iCAM06m\0HuePreserving\0Linear\0None\0";
+> = Tonemap_None;
+
+uniform float MaxNitsApply
+<
+	ui_category = "Tonemapping";
+	ui_label = "Max Nits Output";
+	ui_tooltip =
+		"Value of nits output after tonemapping. Usually around 100 for SDR displays. For HDR displays, good starting values is 1000.\n"
+		"\nDefault: 1000 nits";
+	ui_type = "slider";
+	ui_min = 0.0;
+	ui_max = 10000.0;
+	ui_step = 100.0;
+> = 1000.0;
 
 uniform float BloomAmount
 <
@@ -189,7 +220,7 @@ uniform float BloomAmount
 	ui_type = "slider";
 	ui_min = 0.0;
 	ui_max = 1.0;
-> = 0.3;
+> = 0.5;
 
 uniform float BloomBrightness
 <
@@ -200,11 +231,27 @@ uniform float BloomBrightness
 		"This is different from the amount in it directly affects the "
 		"brightness, rather than acting as a percentage of blending between "
 		"the HDR color and the bloom color.\n"
-		"\nDefault: 3.0";
+		"\nDefault: 1.0";
 	ui_type = "slider";
-	ui_min = 1.0;
+	ui_min = 0.001;
 	ui_max = 5.0;
-> = 3.0;
+> = 1.0;
+
+uniform float BloomMaximization
+<
+	ui_category = "Bloom";
+	ui_label = "Brightness2";
+	ui_tooltip =
+		"This value is used to maximize the bloom texture brightness.\n"
+		"This is different from the brightness in it attempt to "
+		"maximizes the highlights, rather than multiplying "
+		"the HDR color and the bloom color.\n"
+		"It's also better than contrast or threshold because it does not introduce color shifts.\n"
+		"\nDefault: 0.0";
+	ui_type = "slider";
+	ui_min = 0.0;
+	ui_max = 2.0;
+> = 0.05;
 
 #if MAGIC_HDR_ENABLE_BLOOM_CONTRAST
 
@@ -218,7 +265,7 @@ uniform float BloomContrast
 	ui_type = "slider";
 	ui_min = 1.0;
 	ui_max = 1000.0;
-> = 1.0;
+> = 100.0;
 
 uniform float BloomContrastSoft
 <
@@ -231,7 +278,7 @@ uniform float BloomContrastSoft
 	ui_type = "slider";
 	ui_min = 1.0;
 	ui_max = 2000.0;
-> = 1.0;
+> = 400.0;
 
 #endif
 
@@ -287,7 +334,7 @@ uniform float BlendingBase
 	ui_type = "slider";
 	ui_min = 0.0;
 	ui_max = 1.0;
-> = 0.8;
+> = 0.75;
 
 uniform int BlendingType
 <
@@ -298,7 +345,7 @@ uniform int BlendingType
 		"\nDefault: Additive";
 	ui_type = "combo";
 	ui_items = "Additive\0Overlay\0";
-> = Overlay;
+> = Additive;
 
 #if MAGIC_HDR_ENABLE_ADAPTATION
 
@@ -502,6 +549,10 @@ sampler LastAdapt
 
 float3 ApplyInverseTonemap(float3 color, float2 uv)
 {
+	// Scaling down to LDR range to avoid NaN\Inf artifacts
+	// It is scaled up again at the output.
+	color /= (MaxNitsInverse*0.0125);
+	
 	switch (InvTonemap)
 	{
 		case InvTonemap_Reinhard:
@@ -531,8 +582,8 @@ float3 ApplyInverseTonemap(float3 color, float2 uv)
 		case InvTonemap_Fallout4:
 			color = Tonemap::Fallout4::Inverse(color);
 			break;
-		case InvTonemap_AMDLPM:
-			color = Tonemap::AMDLPM::Inverse(color);
+		case InvTonemap_Frostbite:
+			color = Tonemap::Frostbite::Inverse(color);
 			break;
 		case InvTonemap_Uchimura:
 			color = Tonemap::Uchimura::Inverse(color);
@@ -543,14 +594,20 @@ float3 ApplyInverseTonemap(float3 color, float2 uv)
 		case InvTonemap_iCAM06m:
 			color = Tonemap::iCAM06m::Inverse(color);
 			break;
+		case InvTonemap_HuePreserving:
+			color = Tonemap::HuePreserving::Inverse(color);
+			break;
 		case InvTonemap_Linear:
 			color = Tonemap::Linear::Inverse(color);
+			break;
+		case InvTonemap_None:
+			color = Tonemap::None::Inverse(color);
 			break;
 	}
 
 	color /= exp(InputExposure);
-
-	return color;
+	color *=(MaxNitsInverse*0.0125);
+	return clamp(color, 0.0, (MaxNitsInverse*0.0125));
 }
 
 float3 ApplyTonemap(float3 color, float2 uv)
@@ -560,6 +617,8 @@ float3 ApplyTonemap(float3 color, float2 uv)
 	#if MAGIC_HDR_ENABLE_ADAPTATION
 		exposure /= tex2Dfetch(Adapt, 0).x;
 	#endif
+
+	color /= (MaxNitsApply*0.0125);
 
 	switch (Tonemap)
 	{
@@ -590,8 +649,8 @@ float3 ApplyTonemap(float3 color, float2 uv)
 		case Tonemap_Fallout4:
 			color = Tonemap::Fallout4::Apply(color * exposure);
 			break;
-		case Tonemap_AMDLPM:
-			color = Tonemap::AMDLPM::Apply(color * exposure);
+		case Tonemap_Frostbite:
+			color = Tonemap::Frostbite::Apply(color * exposure);
 			break;
 		case Tonemap_Uchimura:
 			color = Tonemap::Uchimura::Apply(color * exposure);
@@ -602,12 +661,19 @@ float3 ApplyTonemap(float3 color, float2 uv)
 		case Tonemap_iCAM06m:
 			color = Tonemap::iCAM06m::Apply(color * exposure);
 			break;
+		case Tonemap_HuePreserving:
+			color = Tonemap::HuePreserving::Apply(color * exposure);
+			break;
 		case Tonemap_Linear:
 			color = Tonemap::Linear::Apply(color * exposure);
 			break;
+		case Tonemap_None:
+			color = Tonemap::None::Apply(color * exposure);
+			break;
 	}
-
-	return color;
+	
+	color *=(MaxNitsApply*0.0125);
+	return clamp(color, 0.0, (MaxNitsApply*0.0125));
 }
 
 float4 Blur(sampler sp, float2 uv, float2 dir)
@@ -642,10 +708,8 @@ float4 InverseTonemapPS(
 	float4 color = tex2D(Color, uv);
 
 	float saturation = BloomSaturation;
-								  
-					
 
-	color.rgb = saturate(ApplySaturation(color.rgb, saturation));
+	color.rgb = ApplySaturation(color.rgb, saturation);
 	
 	#if MAGIC_HDR_SRGB_INPUT
 		// Precise sRGB to Linear
@@ -656,6 +720,12 @@ float4 InverseTonemapPS(
 
 	// TODO: Saturation and other color filtering options?
 	color.rgb *= exp(BloomBrightness);
+	
+	// Find the maximum component value (max of R, G, B)
+    float maxComponent = max(max(color.r, color.g), color.b);
+
+    // Boost only the maximum component to avoid color shifting
+    color = color + (color * maxComponent * BloomMaximization);
 	
 	//Thresholding code by TheSandvichMaster
 	#if MAGIC_HDR_ENABLE_BLOOM_CONTRAST > 0
@@ -804,7 +874,7 @@ float4 TonemapPS(
 	{
 	color.rgb = ShowBloom
 		? bloom.rgb
-		: color.rgb + (bloom.rgb * log10(BloomAmount + 1.0));
+		: color.rgb + (bloom.rgb * BloomAmount);
 	}
 	color.rgb = ApplyTonemap(color.rgb, uv);	
 
@@ -870,10 +940,6 @@ technique MagicHDR <ui_tooltip = "FXShaders - Bloom and tonemapping effect.";>
 	{
 		VertexShader = ScreenVS;
 		PixelShader = TonemapPS;		
-
-						   
-						  
-		
 	}
 }
 
