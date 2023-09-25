@@ -310,17 +310,21 @@ namespace Fallout4
 	static const float F = 0.30;
 	
 	// LinearWhite, white level 
-	//static const float W = 4.2;
+	static const float W = 5.6; //Default Fallout4 value is 5.6
  	
 	
 	float3 Apply(float3 color)
 	{
+	
+		color = color / W;
+		
 		color =
 		(
 			(color * (A * color + C * B) + D * E) /
 			(color * (A * color + B) + D * F)
 		) - E / F;
 		return color;
+		//return clamp (color, 0.0, W);	
 	}
 	
 	float3 Inverse(float3 color)
@@ -334,7 +338,8 @@ namespace Fallout4
                 4.0 * D * (F * F) * color * (A * E + A * F * color - A * F)))) /
             (2.0 * A * (E + F * color - F)))
         );
-        return color;
+        //return color;
+        return color * W;
 	}
 
 }
