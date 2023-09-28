@@ -849,20 +849,39 @@ float4 TonemapPS(
 
 	float4 color = tex2D(Color, uv);
 	color.rgb = ApplyInverseTonemap(color.rgb, uv);
-
-	float mean = BlendingBase * 7;
-	float variance = BlendingAmount * 7;
-
-	float4 bloom =
-		tex2D(Bloom0, uv) * NormalDistribution(1, mean, variance) +
-		tex2D(Bloom1, uv) * NormalDistribution(2, mean, variance) +
-		tex2D(Bloom2, uv) * NormalDistribution(3, mean, variance) +
-		tex2D(Bloom3, uv) * NormalDistribution(4, mean, variance) +
-		tex2D(Bloom4, uv) * NormalDistribution(5, mean, variance) +
-		tex2D(Bloom5, uv) * NormalDistribution(6, mean, variance) +
-		tex2D(Bloom6, uv) * NormalDistribution(7, mean, variance);
-
-	bloom /= 7;
+	
+	float4 bloom = 0.0;
+	
+	if (MaxNitsApply > 500)
+		{
+		bloom =
+			tex2D(Bloom0, uv) +
+			tex2D(Bloom1, uv) +
+			tex2D(Bloom2, uv) +
+			tex2D(Bloom3, uv) +
+			tex2D(Bloom4, uv) +
+			tex2D(Bloom5, uv) +
+			tex2D(Bloom6, uv);
+	
+		bloom /= 7;
+		}
+	else 
+		{
+		float mean = BlendingBase * 7;
+		float variance = BlendingAmount * 7;
+	
+		bloom =
+			tex2D(Bloom0, uv) * NormalDistribution(1, mean, variance) +
+			tex2D(Bloom1, uv) * NormalDistribution(2, mean, variance) +
+			tex2D(Bloom2, uv) * NormalDistribution(3, mean, variance) +
+			tex2D(Bloom3, uv) * NormalDistribution(4, mean, variance) +
+			tex2D(Bloom4, uv) * NormalDistribution(5, mean, variance) +
+			tex2D(Bloom5, uv) * NormalDistribution(6, mean, variance) +
+			tex2D(Bloom6, uv) * NormalDistribution(7, mean, variance);
+	
+		bloom /= 7;
+		}
+	
 	if (BlendingType == Overlay)	
 	{
 	color.rgb = ShowBloom
