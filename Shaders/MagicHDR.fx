@@ -216,7 +216,7 @@ uniform float BloomAmount
 	ui_label = "Amount";
 	ui_tooltip =
 		"The amount of bloom to apply to the image.\n"
-		"\nDefault: 0.3. You can use higher than 1.0 in additive mode.";
+		"\nDefault: 0.5. You can use higher than 1.0 in additive mode.";
 	ui_type = "slider";
 	ui_min = 0.0;
 	ui_max = 1.0;
@@ -246,12 +246,11 @@ uniform float BloomMaximization
 		"This is different from the brightness in it attempt to "
 		"maximizes the highlights, rather than multiplying "
 		"the HDR color and the bloom color.\n"
-		"It's also better than contrast or threshold because it does not introduce color shifts.\n"
-		"\nDefault: 0.0";
+		"\nDefault: 1.0";
 	ui_type = "slider";
 	ui_min = 0.0;
 	ui_max = 2.0;
-> = 0.05;
+> = 1.0;
 
 #if MAGIC_HDR_ENABLE_BLOOM_CONTRAST
 
@@ -261,11 +260,11 @@ uniform float BloomContrast
 	ui_label = "Contrast Hard";
 	ui_tooltip =
 		"This value is used to contrast the bloom texture.\n"
-		"\nDefault: 1.0";
+		"\nDefault: 7.0";
 	ui_type = "slider";
-	ui_min = 1.0;
-	ui_max = 1000.0;
-> = 100.0;
+	ui_min = 0.0;
+	ui_max = 100.0;
+> = 7.0;
 
 uniform float BloomContrastSoft
 <
@@ -273,12 +272,11 @@ uniform float BloomContrastSoft
 	ui_label = "Contrast Soft";
 	ui_tooltip =
 		"This value is used to soften the contrast of the bloom texture.\n"
-		"Must be higher than Contrast Hard.\n"
-		"\nDefault: 1.0";
+		"\nDefault: 0.025";
 	ui_type = "slider";
-	ui_min = 1.0;
-	ui_max = 2000.0;
-> = 400.0;
+	ui_min = 0.0;
+	ui_max = 1.0;
+> = 0.025;
 
 #endif
 
@@ -334,7 +332,7 @@ uniform float BlendingBase
 	ui_type = "slider";
 	ui_min = 0.0;
 	ui_max = 1.0;
-> = 0.75;
+> = 1.00;
 
 uniform int BlendingType
 <
@@ -718,23 +716,27 @@ float4 InverseTonemapPS(
 
 	color.rgb = ApplyInverseTonemap(color.rgb, uv);
 
-	// TODO: Saturation and other color filtering options?
-	color.rgb *= exp(BloomBrightness);
-	
+	// Thresholding
+	#if MAGIC_HDR_ENABLE_BLOOM_CONTRAST > 0	
+	color = (GetLumaLinear(color.rgb) > BloomContrast)
+		? color
+		: (color * BloomContrastSoft) * GetLumaLinear(color.rgb);
+	#endif
+
 	// Find the maximum component value (max of R, G, B)
     float maxComponent = max(max(color.r, color.g), color.b);
 
     // Boost only the maximum component to avoid color shifting
     color = color + (color * maxComponent * BloomMaximization);
-	
-	//Thresholding code by TheSandvichMaster
-	#if MAGIC_HDR_ENABLE_BLOOM_CONTRAST > 0
-	float lowerThreshold = BloomContrast - BloomContrastSoft * 0.5;
-    float upperThreshold = BloomContrast + BloomContrastSoft * 0.5;
-	
-	color.rgb *= smoothstep(lowerThreshold, upperThreshold, max(color.rgb,color.rgb));
-	#endif
 
+	// TODO: Saturation and other color filtering options?
+	if (BlendingType == Overlay)	
+		color.rgb *= exp(BloomBrightness);
+	else if (BlendingType == Additive)
+		color.rgb *= (BloomBrightness);
+		
+
+	
 	return color;
 }
 
@@ -851,25 +853,25 @@ float4 TonemapPS(
 	color.rgb = ApplyInverseTonemap(color.rgb, uv);
 	
 	float4 bloom = 0.0;
-	
+
+	float mean = BlendingBase * 7;
+	float variance = BlendingAmount * 7;	
+
 	if (MaxNitsApply > 500)
 		{
 		bloom =
-			tex2D(Bloom0, uv) +
-			tex2D(Bloom1, uv) +
-			tex2D(Bloom2, uv) +
-			tex2D(Bloom3, uv) +
-			tex2D(Bloom4, uv) +
-			tex2D(Bloom5, uv) +
-			tex2D(Bloom6, uv);
+			tex2D(Bloom0, uv) * NormalDistribution(1, mean, variance) +
+			tex2D(Bloom1, uv) * NormalDistribution(2, mean, variance) +
+			tex2D(Bloom2, uv) * NormalDistribution(3, mean, variance) +
+			tex2D(Bloom3, uv) * NormalDistribution(4, mean, variance) +
+			tex2D(Bloom4, uv) * NormalDistribution(5, mean, variance) +
+			tex2D(Bloom5, uv) * NormalDistribution(6, mean, variance) +
+			tex2D(Bloom6, uv) * NormalDistribution(7, mean, variance);
 	
-		bloom /= 7;
+		//bloom *= 7;
 		}
 	else 
-		{
-		float mean = BlendingBase * 7;
-		float variance = BlendingAmount * 7;
-	
+		{	
 		bloom =
 			tex2D(Bloom0, uv) * NormalDistribution(1, mean, variance) +
 			tex2D(Bloom1, uv) * NormalDistribution(2, mean, variance) +
