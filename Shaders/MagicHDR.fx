@@ -11,6 +11,10 @@
 
 //#region Preprocessor Directives
 
+#ifndef MAGIC_HDR_NITS_SCALING
+#define MAGIC_HDR_NITS_SCALING 0
+#endif
+
 #ifndef MAGIC_HDR_BLUR_SAMPLES
 #define MAGIC_HDR_BLUR_SAMPLES 13
 #endif
@@ -41,6 +45,10 @@
 
 #ifndef MAGIC_HDR_ENABLE_BLOOM_CONTRAST
 #define MAGIC_HDR_ENABLE_BLOOM_CONTRAST 0
+#endif
+
+#ifndef MAGIC_HDR_ENABLE_BLOOM_NORMALIZATION 
+#define MAGIC_HDR_ENABLE_BLOOM_NORMALIZATION 0
 #endif
 
 //#endregion
@@ -95,6 +103,9 @@ static const int
 static const int 
 	Additive = 0,
 	Overlay = 1;
+static const int 
+	Exponential = 0,
+	Multiplication = 1;
 
 //#endregion
 
@@ -131,6 +142,15 @@ FXSHADERS_HELP(
 	"  Leave at 1x for maximum detail, 2x or 4x should still be fine.\n"
 	"  Values too high may introduce flickering.\n"
 );
+
+uniform bool TonemapBloomOnly
+<
+	ui_category = "Tonemapping";
+	ui_label = "Only bloom texture tonemapping";
+	ui_tooltip =
+		"Applies inverse and regular tonemapping only to bloom texture,\n"
+		"rather than both input\output color and bloom texture";
+> = true;
 
 uniform float InputExposure
 <
@@ -170,19 +190,6 @@ uniform int InvTonemap
 		"Reinhard\0Reinhard2\0Uncharted 2 Filmic\0Baking Lab ACES\0Lottes\0Lottes2\0Narkowicz ACES\0Unreal 3\0Fallout4\0Frostbite\0Uchimura\0ReinhardJodie\0iCAM06m\0HuePreserving\0Linear\0None\0";
 > = InvTonemap_Reinhard;
 
-uniform float MaxNitsInverse
-<
-	ui_category = "Tonemapping";
-	ui_label = "Max Nits Input";
-	ui_tooltip =
-		"Value of nits output before tonemapping, potential maximum HDR value a game might output. On SDR, values around 100-1000 seem to work the best.\n"
-		"\nDefault: 10000 nits";
-	ui_type = "slider";
-	ui_min = 0.0;
-	ui_max = 100000.0;
-	ui_step = 100.0;
-> = 10000.0;
-
 uniform int Tonemap
 <
 	ui_category = "Tonemapping";
@@ -195,6 +202,21 @@ uniform int Tonemap
 	ui_items =
 		"Reinhard\0Reinhard2\0Uncharted 2 Filmic\0Baking Lab ACES\0Lottes\0Lottes2\0Narkowicz ACES\0Unreal 3\0Fallout4\0Frostbite\0Uchimura\0ReinhardJodie\0iCAM06m\0HuePreserving\0Linear\0None\0";
 > = Tonemap_None;
+
+#if MAGIC_HDR_NITS_SCALING
+
+uniform float MaxNitsInverse
+<
+	ui_category = "Tonemapping";
+	ui_label = "Max Nits Input";
+	ui_tooltip =
+		"Value of nits output before tonemapping, potential maximum HDR value a game might output. On SDR, values around 100-1000 seem to work the best.\n"
+		"\nDefault: 10000 nits";
+	ui_type = "slider";
+	ui_min = 0.0;
+	ui_max = 100000.0;
+	ui_step = 100.0;
+> = 100000.0;
 
 uniform float MaxNitsApply
 <
@@ -209,6 +231,8 @@ uniform float MaxNitsApply
 	ui_step = 100.0;
 > = 1000.0;
 
+#endif
+
 uniform float BloomAmount
 <
 	ui_category = "Bloom";
@@ -220,7 +244,18 @@ uniform float BloomAmount
 	ui_type = "slider";
 	ui_min = 0.0;
 	ui_max = 1.0;
-> = 0.5;
+> = 0.05;
+
+uniform int BloomBrightnessMethod
+<
+	ui_category = "Bloom";
+	ui_label = "Brightness Method";
+	ui_tooltip =
+		"Methods of multiplying bloom texture\n"
+		"\nDefault: Multiplication";
+	ui_type = "combo";
+	ui_items = "Exponential\0Multiplication\0";
+> = Multiplication;
 
 uniform float BloomBrightness
 <
@@ -250,7 +285,7 @@ uniform float BloomMaximization
 	ui_type = "slider";
 	ui_min = 0.0;
 	ui_max = 2.0;
-> = 1.0;
+> = 0.0;
 
 #if MAGIC_HDR_ENABLE_BLOOM_CONTRAST
 
@@ -264,7 +299,7 @@ uniform float BloomContrast
 	ui_type = "slider";
 	ui_min = 0.0;
 	ui_max = 100.0;
-> = 7.0;
+> = 8.0;
 
 uniform float BloomContrastSoft
 <
@@ -272,7 +307,7 @@ uniform float BloomContrastSoft
 	ui_label = "Contrast Soft";
 	ui_tooltip =
 		"This value is used to soften the contrast of the bloom texture.\n"
-		"\nDefault: 0.025";
+		"\nDefault: 0.05";
 	ui_type = "slider";
 	ui_min = 0.0;
 	ui_max = 1.0;
@@ -307,6 +342,8 @@ uniform float BlurSize
 	ui_max = 1.0;
 > = 0.5;
 
+#if MAGIC_HDR_ENABLE_BLOOM_NORMALIZATION
+
 uniform float BlendingAmount
 <
 	ui_category = "Bloom - Advanced";
@@ -332,7 +369,9 @@ uniform float BlendingBase
 	ui_type = "slider";
 	ui_min = 0.0;
 	ui_max = 1.0;
-> = 1.00;
+> = 0.5;
+
+#endif
 
 uniform int BlendingType
 <
@@ -549,7 +588,9 @@ float3 ApplyInverseTonemap(float3 color, float2 uv)
 {
 	// Scaling down to LDR range to avoid NaN\Inf artifacts
 	// It is scaled up again at the output.
-	color /= (MaxNitsInverse*0.0125);
+	#if MAGIC_HDR_NITS_SCALING
+		color /= (MaxNitsInverse*0.0125);
+	#endif
 	
 	switch (InvTonemap)
 	{
@@ -604,8 +645,13 @@ float3 ApplyInverseTonemap(float3 color, float2 uv)
 	}
 
 	color /= exp(InputExposure);
-	color *=(MaxNitsInverse*0.0125);
-	return clamp(color, 0.0, (MaxNitsInverse*0.0125));
+	
+	#if MAGIC_HDR_NITS_SCALING
+		color *=(MaxNitsInverse*0.0125);
+		color = clamp(color, 0.0, (MaxNitsInverse*0.0125));
+	#endif
+	
+	return color;
 }
 
 float3 ApplyTonemap(float3 color, float2 uv)
@@ -616,7 +662,9 @@ float3 ApplyTonemap(float3 color, float2 uv)
 		exposure /= tex2Dfetch(Adapt, 0).x;
 	#endif
 
-	color /= (MaxNitsApply*0.0125);
+	#if MAGIC_HDR_NITS_SCALING
+		color /= (MaxNitsApply*0.0125);
+	#endif
 
 	switch (Tonemap)
 	{
@@ -670,8 +718,12 @@ float3 ApplyTonemap(float3 color, float2 uv)
 			break;
 	}
 	
-	color *=(MaxNitsApply*0.0125);
-	return clamp(color, 0.0, (MaxNitsApply*0.0125));
+	#if MAGIC_HDR_NITS_SCALING
+		color *=(MaxNitsApply*0.0125);
+		color = clamp(color, 0.0, (MaxNitsApply*0.0125));
+	#endif
+	
+	return color;
 }
 
 float4 Blur(sampler sp, float2 uv, float2 dir)
@@ -730,13 +782,11 @@ float4 InverseTonemapPS(
     color = color + (color * maxComponent * BloomMaximization);
 
 	// TODO: Saturation and other color filtering options?
-	if (BlendingType == Overlay)	
+	if (BloomBrightnessMethod == 0)	
 		color.rgb *= exp(BloomBrightness);
-	else if (BlendingType == Additive)
+	else if (BloomBrightnessMethod == 1)
 		color.rgb *= (BloomBrightness);
 		
-
-	
 	return color;
 }
 
@@ -850,28 +900,26 @@ float4 TonemapPS(
 	#endif
 
 	float4 color = tex2D(Color, uv);
-	color.rgb = ApplyInverseTonemap(color.rgb, uv);
-	
 	float4 bloom = 0.0;
-
-	float mean = BlendingBase * 7;
-	float variance = BlendingAmount * 7;	
-
-	if (MaxNitsApply > 500)
-		{
-		bloom =
-			tex2D(Bloom0, uv) * NormalDistribution(1, mean, variance) +
-			tex2D(Bloom1, uv) * NormalDistribution(2, mean, variance) +
-			tex2D(Bloom2, uv) * NormalDistribution(3, mean, variance) +
-			tex2D(Bloom3, uv) * NormalDistribution(4, mean, variance) +
-			tex2D(Bloom4, uv) * NormalDistribution(5, mean, variance) +
-			tex2D(Bloom5, uv) * NormalDistribution(6, mean, variance) +
-			tex2D(Bloom6, uv) * NormalDistribution(7, mean, variance);
 	
-		//bloom *= 7;
-		}
-	else 
-		{	
+	if (TonemapBloomOnly)
+	{
+		bloom.rgb = ApplyInverseTonemap(bloom.rgb, uv);
+	}
+	else
+	{
+		color.rgb = ApplyInverseTonemap(color.rgb, uv);
+	}
+
+	float mean = 0.0;
+	float variance = 0.0;	
+
+	#if MAGIC_HDR_ENABLE_BLOOM_NORMALIZATION
+		{
+
+		mean = BlendingBase * 7;
+		variance = BlendingAmount * 7;
+	
 		bloom =
 			tex2D(Bloom0, uv) * NormalDistribution(1, mean, variance) +
 			tex2D(Bloom1, uv) * NormalDistribution(2, mean, variance) +
@@ -882,7 +930,20 @@ float4 TonemapPS(
 			tex2D(Bloom6, uv) * NormalDistribution(7, mean, variance);
 	
 		bloom /= 7;
+		}		
+	#else 	
+		{		
+		bloom =
+			tex2D(Bloom0, uv) +
+			tex2D(Bloom1, uv) +
+			tex2D(Bloom2, uv) +
+			tex2D(Bloom3, uv) +
+			tex2D(Bloom4, uv) +
+			tex2D(Bloom5, uv) +
+			tex2D(Bloom6, uv);
+		bloom /= 7;
 		}
+	#endif	
 	
 	if (BlendingType == Overlay)	
 	{
@@ -897,7 +958,15 @@ float4 TonemapPS(
 		? bloom.rgb
 		: color.rgb + (bloom.rgb * BloomAmount);
 	}
-	color.rgb = ApplyTonemap(color.rgb, uv);	
+	
+	if (TonemapBloomOnly)
+	{
+		bloom.rgb = ApplyTonemap(bloom.rgb, uv);
+	}
+	else
+	{
+		color.rgb = ApplyTonemap(color.rgb, uv);
+	}	
 
 	#if MAGIC_HDR_SRGB_OUTPUT
 		// Precise Linear to sRGB
