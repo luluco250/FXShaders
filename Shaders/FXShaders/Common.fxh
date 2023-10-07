@@ -241,18 +241,43 @@ float3 checkered_pattern(float2 uv)
 /**
  * Modify the saturation of a given RGB color.
  *
- * @param color THe RGB color to modify.
+ * @param color The RGB color to modify.
  * @param amount The amount of saturation to use.
  *               Setting it to 0.0 returns a fully grayscale color.
  *               Setting it to 1.0 returns the same color.
- *               Values above 1.0 will increase saturation as well as some
- *               brightness.
+ *               Values above 1.0 will increase saturation.
  */
 float3 ApplySaturation(float3 color, float amount)
 {
-	float gray = GetLumaLinear(color);
-	return gray + (color - gray) * amount;
+    // Calculate the luminance of the original color.
+    float gray = GetLumaLinear(color);
+
+    // Calculate the color difference from the luminance.
+    float3 delta = color - gray;
+
+    // Calculate the maximum delta component.
+    float maxDelta = max(max(delta.r, delta.g), delta.b);
+
+    // Initialize deltaSaturated with the original delta.
+    float3 deltaSaturated = delta;
+
+    // Ensure that maxDelta is positive and not too small to avoid artifacts.
+    if (maxDelta > 0.001)
+    {
+        // Calculate a scaling factor based on the maximum delta.
+        float3 scaleFactor = maxDelta / max(maxDelta, 0.001); // Ensure no division by zero
+
+        // Apply the scaling factor to deltaSaturated.
+        deltaSaturated = delta + scaleFactor * (deltaSaturated - delta);
+    }
+
+    // Combine the gray luminance and the modified delta to get the final color.
+    float3 result = gray + deltaSaturated * amount;
+
+    // Output.
+    return result;
 }
+
 
 /**
  * Get a pseudo-random value from a given coordinate.
